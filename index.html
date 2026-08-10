@@ -866,13 +866,25 @@
     bctx.textAlign = "left";
     state.centerSerial = bestSerial;
 
-    // highlight the plate at the signing point — SNAP to full solid red (locked)
+    // highlight the plate at the signing point. Solid red only when it is actually
+    // signable (at or behind the live head); when you peek forward into the future the
+    // centred work is unresolved, so it gets a muted dashed "not yet" frame instead.
     const cxC = centerScreen + ((bestSerial - base) * STRIDE) - (frac * STRIDE);
     const half2 = plate / 2;
-    bctx.strokeStyle = css("--signal");
-    bctx.globalAlpha = 1;
-    bctx.lineWidth = 1.75;
-    bctx.strokeRect(cxC - half2 - 4, cy - half2 - 4, plate + 8, plate + 8);
+    if (bestSerial <= Math.round(liveHeadF)) {
+      bctx.strokeStyle = css("--signal");
+      bctx.globalAlpha = 1;
+      bctx.lineWidth = 1.75;
+      bctx.strokeRect(cxC - half2 - 4, cy - half2 - 4, plate + 8, plate + 8);
+    } else {
+      bctx.strokeStyle = css("--muted");
+      bctx.globalAlpha = 0.7;
+      bctx.lineWidth = 1;
+      bctx.setLineDash([4, 4]);
+      bctx.strokeRect(cxC - half2 - 4, cy - half2 - 4, plate + 8, plate + 8);
+      bctx.setLineDash([]);
+      bctx.globalAlpha = 1;
+    }
   }
 
   /* ---------- render the space (latent map) ----------
@@ -1164,7 +1176,6 @@
     el.signed.textContent = state.signed.toLocaleString("en-US");
     const c = coordFor(state.scroll / STRIDE);   // continuous head — glides, matches the map crosshair
     el.coord.textContent = c.u.toFixed(3) + ", " + c.v.toFixed(3);
-    if (!state.looking && !reduced) updateLiveChip();   // parked: keep the −N offset current as now advances
   }
 
   /* ---------- grab / certify ---------- */
@@ -1459,16 +1470,15 @@
   const statusEl = document.getElementById("status");
   const statusT = document.getElementById("status-t");
 
-  const MAXBACK = 500;                       // how far back a scrub can reach (works)
   function liveNow() { return machineSerial(); }   // the machine's real present, always advancing
+  const REACH_F = 3.6, REACH_B = 1.1;              // rubberband reach — ahead (into noise) / behind
+  let scrubOffset = 0;                             // springy peek offset in works (+ future, − past)
 
-  // The pill is the single playback control: it shows whether you're live or parked,
-  // how far back you've scrubbed, and clicking it returns you to now.
+  // The pill is the live indicator + pause control. No parking: the belt is always
+  // anchored to now, so it only ever reads Live or Paused (or a reduced-motion still).
   function updateLiveChip() {
     if (reduced) { statusT.textContent = state.looking ? "Live" : "Still frame"; return; }
-    if (state.looking) { statusT.textContent = "Live"; return; }
-    const back = Math.round(liveNow()) - Math.round(state.frozenSerial);
-    statusT.textContent = back > 0 ? "▸ Live · −" + back.toLocaleString("en-US") : "▸ Live · paused";
+    statusT.textContent = state.looking ? "Live" : "❚❚ Paused";
   }
   function setStatus(live) {
     statusEl.classList.toggle("away", !live);
@@ -1480,7 +1490,7 @@
     seamEl.classList.add("on"); seamTimer = 2.8;
   }
 
-  // You can look away or scrub back, but you cannot stop the machine. Resume = jump to now.
+  // You can pause or peek, but you cannot stop the machine. Resume = jump to now.
   function setLooking(live, silent) {
     if (live === state.looking) return;
     if (live) { if (!silent) flashMissed(Math.floor(machineSerial()) - Math.floor(state.frozenSerial)); }
@@ -1498,19 +1508,26 @@
     flashMissed(Math.floor(state.frozenSerial) - prev);
   }
 
-  // The pill: return to now (or, when live, park here). Under reduced motion it fetches now.
+  // The pill: pause here / resume live. Under reduced motion it fetches now.
   statusEl.addEventListener("click", () => { reduced ? refreshNow() : setLooking(!state.looking); });
 
   document.getElementById("grab").addEventListener("click", () => openFocus(state.centerSerial));
 
-  /* ---------- scrub: drag the belt back and forth through time ----------
-     Horizontal drag parks the view at an earlier serial (history is fixed & signable);
-     you cannot drag past the live head into the unresolved future. A tap (no drag) still
-     opens the work under the finger. Releasing at/after now snaps back to live. */
-  let ptrDown = false, scrubbing = false, startX = 0, startSerial = 0, moved = 0;
+  /* ---------- scrub: a springy rubberband peek, anchored to now ----------
+     Drag forward (left) to peek into the unresolved future — the noise field / diffusion,
+     and the red frame fading in as a work locks; drag back (right) for a short glimpse of
+     what just passed. On release the belt eases back to now — nothing is parked, and only
+     the present is signable. A tap (no drag) still opens the work under the finger. */
+  let ptrDown = false, scrubbing = false, startX = 0, beltW = 1, moved = 0;
+  function rubber(n) {                              // n = normalised drag: + into future, − into past
+    const m = n >= 0 ? REACH_F : REACH_B;
+    const s = n >= 0 ? 1 : -1;
+    return s * m * (1 - Math.exp(-Math.abs(n) * 1.8));   // ~1:1 at first, then asymptotes to the cap
+  }
   belt.addEventListener("pointerdown", e => {
     if (!focusEl.hidden) return;
     ptrDown = true; scrubbing = false; startX = e.clientX; moved = 0;
+    beltW = stage.getBoundingClientRect().width || W;
   });
   belt.addEventListener("pointermove", e => {
     if (!ptrDown) return;
@@ -1519,27 +1536,23 @@
     if (!scrubbing) {
       if (Math.abs(dx) < 6) return;               // below threshold — could still be a tap
       scrubbing = true;
-      if (state.looking) setLooking(false, true); // silent freeze — a scrub is not "looking away"
-      startSerial = state.frozenSerial;
       startX = e.clientX;                          // rebaseline so the grab doesn't jump
       try { belt.setPointerCapture(e.pointerId); } catch (_) {}
       stage.classList.add("grabbing");
       return;
     }
-    const now = liveNow();
-    let s = startSerial - (e.clientX - startX) / STRIDE;   // drag right → back in time
-    s = Math.min(now, Math.max(now - MAXBACK, s));          // clamp to [now−MAXBACK, now]
-    state.frozenSerial = s;
-    if (reduced) { state.scroll = s * STRIDE; renderBelt(); renderMap(); updateHUD(); }
+    scrubOffset = rubber(-(e.clientX - startX) / (beltW * 0.5));  // drag left → +future, right → −past
+    if (reduced) { state.scroll = (state.frozenSerial + scrubOffset) * STRIDE; renderBelt(); renderMap(); updateHUD(); }
   });
   function endScrub(e) {
     if (!ptrDown) return;
     ptrDown = false;
     if (!scrubbing) return;
+    scrubbing = false;
     try { belt.releasePointerCapture(e.pointerId); } catch (_) {}
     stage.classList.remove("grabbing");
-    if (!reduced && state.frozenSerial >= liveNow() - 0.01) setLooking(true, true); // back at now → live
-    else updateLiveChip();
+    // reduced motion: snap back instantly (no animation); otherwise the loop springs it back
+    if (reduced) { scrubOffset = 0; state.scroll = state.frozenSerial * STRIDE; renderBelt(); renderMap(); updateHUD(); }
   }
   belt.addEventListener("pointerup", endScrub);
   belt.addEventListener("pointercancel", endScrub);
@@ -1547,7 +1560,7 @@
   belt.addEventListener("click", e => {
     if (moved > 6) { moved = 0; return; }         // that was a scrub, not a tap
     const s = serialAtX(e.clientX);
-    if (s > Math.floor(liveNow())) return;        // the true future is unresolved — not signable
+    if (s > Math.round(liveNow())) return;        // the true future is unresolved — not signable
     openFocus(s);
   });
 
@@ -1571,9 +1584,14 @@
   function frame() {
     const now = performance.now();
     const dt = Math.min(0.05, (now - lastT) / 1000); lastT = now;
-    const viewSerial = state.looking ? machineSerial() : state.frozenSerial;
+    // spring the peek offset back to 0 whenever the finger isn't driving it
+    if (!scrubbing && scrubOffset !== 0) {
+      scrubOffset += (0 - scrubOffset) * Math.min(1, dt * 12);
+      if (Math.abs(scrubOffset) < 0.002) scrubOffset = 0;
+    }
+    const viewSerial = (state.looking ? machineSerial() : state.frozenSerial) + scrubOffset;
     state.scroll = viewSerial * STRIDE;
-    if (state.looking) advanceBookkeeping();
+    if (state.looking && Math.abs(scrubOffset) < 0.5) advanceBookkeeping();
     if (seamTimer > 0) { seamTimer -= dt; if (seamTimer <= 0) seamEl.classList.remove("on"); }
     renderBelt();
     renderMap();
