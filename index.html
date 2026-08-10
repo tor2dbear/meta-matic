@@ -1,15 +1,15 @@
 <!doctype html>
-<html lang="sv">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light dark">
-<meta name="description" content="Méta-Matic ∞ — ett latent löpande band efter Jean Tinguely. En väggklocksdriven maskin som ritar oändligt många verk och aldrig något nytt.">
+<meta name="description" content="Méta-Matic ∞ — a latent conveyor belt after Jean Tinguely. A wall-clock-driven machine that draws infinitely many works and never anything new.">
 <link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%20100%20100%22%3E%3Ctext%20y%3D%22.9em%22%20font-size%3D%2290%22%3E%E2%99%BE%EF%B8%8F%3C%2Ftext%3E%3C%2Fsvg%3E">
 <title>Méta-Matic ∞</title>
 <style>
   :root {
-    /* Light — "tekniskt papper", verkstad */
+    /* Light — "technical paper", workshop */
     --paper:   #e4e2da;
     --surface: #edece6;
     --sunk:    #dcdad1;
@@ -112,7 +112,7 @@
     color: var(--signal); font-size: 12px;
   }
   .sign-marker::after {
-    content: "SIGNERINGSPUNKT"; position: absolute; bottom: 8px; left: 50%;
+    content: "SIGNING POINT"; position: absolute; bottom: 8px; left: 50%;
     transform: translateX(-50%); white-space: nowrap;
     font-size: 9px; letter-spacing: 0.16em; color: var(--muted);
   }
@@ -177,6 +177,10 @@
   .fm-row { display: flex; justify-content: space-between; align-items: baseline; gap: 14px; padding-bottom: 7px; border-bottom: 1px solid var(--line-2); }
   .fm-row span { color: var(--muted); text-transform: uppercase; letter-spacing: 0.12em; font-size: 9.5px; }
   .fm-row b { font-size: 12px; font-weight: 500; }
+  /* the gut-punch line: "this work has been signed N times" */
+  .fm-row.wide { display: block; }
+  .fm-row.wide[hidden] { display: none; }
+  .fm-row.wide b { color: var(--signal); font-size: 12px; font-variant-numeric: tabular-nums; }
   .fm-note { font-size: 11.5px; color: var(--muted); line-height: 1.6; margin: 3px 0 5px; }
   .fm-actions { display: flex; gap: 10px; flex-wrap: wrap; }
   .fm-fine { font-size: 10px; letter-spacing: 0.04em; color: var(--faint); margin: 4px 0 0; }
@@ -281,41 +285,43 @@
 <body>
 <header>
   <div class="wordmark">
-    <span class="eyebrow">En ritmaskin efter Tinguely · 2026</span>
+    <span class="eyebrow">A drawing machine after Tinguely · 2026</span>
     <h1>Méta-Matic&nbsp;<span class="inf">∞</span></h1>
   </div>
   <div class="telemetry mono">
-    <div class="chip"><div class="k">Verk producerade</div><div class="v" id="t-produced">0</div></div>
-    <div class="chip signal"><div class="k">Original</div><div class="v" id="t-original">0</div></div>
-    <div class="chip"><div class="k">Koordinat</div><div class="v" id="t-coord" style="font-size:13px">—</div></div>
-    <div class="chip"><div class="k">Signerade</div><div class="v" id="t-signed">0</div></div>
+    <div class="chip"><div class="k">Works produced</div><div class="v" id="t-produced">0</div></div>
+    <div class="chip signal"><div class="k">Originals</div><div class="v" id="t-original">0</div></div>
+    <div class="chip"><div class="k">Coordinate</div><div class="v" id="t-coord" style="font-size:13px">—</div></div>
+    <div class="chip"><div class="k">Signed · you</div><div class="v" id="t-signed">0</div></div>
+    <div class="chip signal"><div class="k">Signed · all</div><div class="v" id="t-global">—</div></div>
   </div>
 </header>
 
 <div class="stage" id="stage">
-  <canvas id="belt" aria-label="Ett löpande band av maskinritade verk som kontinuerligt morfar in i varandra"></canvas>
+  <canvas id="belt" aria-label="A conveyor belt of machine-drawn works that continuously morph into one another"></canvas>
   <div class="statuspill" id="status"><span class="dot"></span><span id="status-t">Live</span></div>
   <div class="sign-marker" aria-hidden="true"></div>
   <div class="seam" id="seam" role="status"></div>
   <div class="stage-hint hidden" id="hint">
-    <b>Maskinen är igång.</b><br>
-    Din skärm visar en stillbild — tryck <b>Titta nu</b> för att hämta nuet.
-    Den har ritat i din frånvaro.
+    <b>The machine is running.</b><br>
+    Your screen shows a still frame — press <b>Look now</b> to fetch the present.
+    It has been drawing in your absence.
   </div>
   <div class="focus" id="focus" hidden>
-    <div class="focus-card" role="dialog" aria-modal="true" aria-label="Granska verk">
+    <div class="focus-card" role="dialog" aria-modal="true" aria-label="Inspect work">
       <canvas id="focus-canvas"></canvas>
       <div class="focus-meta">
         <div class="fm-serial mono" id="f-serial">№ —</div>
-        <div class="fm-row"><span>Koordinat</span><b class="mono" id="f-coord">—</b></div>
-        <div class="fm-row"><span>Avtryck</span><b class="mono" id="f-fp">—</b></div>
-        <p class="fm-note">Granska verket. Maskinen ritar vidare medan du tittar.
-          Det du signerar blir <em>ditt</em> — ritat av ingen.</p>
+        <div class="fm-row"><span>Coordinate</span><b class="mono" id="f-coord">—</b></div>
+        <div class="fm-row"><span>Fingerprint</span><b class="mono" id="f-fp">—</b></div>
+        <div class="fm-row wide" id="f-signed-row" hidden></div>
+        <p class="fm-note">Inspect the work. The machine keeps drawing while you look.
+          What you sign becomes <em>yours</em> — drawn by no one.</p>
         <div class="fm-actions">
-          <button class="primary" id="f-sign">Signera &amp; behåll</button>
-          <button id="f-release">Släpp · titta vidare</button>
+          <button class="primary" id="f-sign">Sign &amp; keep</button>
+          <button id="f-release">Release · keep looking</button>
         </div>
-        <p class="fm-fine">Bara det du signerar kan sparas som bild.</p>
+        <p class="fm-fine">Only what you sign can be saved as an image.</p>
       </div>
     </div>
   </div>
@@ -324,42 +330,71 @@
 <div class="console">
   <div class="controls">
     <div class="btn-row">
-      <button class="primary" id="look">Titta bort</button>
-      <button id="grab">Granska &amp; signera</button>
-      <span class="rate-note mono">Takt: 1 verk / 4 s · igång sedan 2026</span>
+      <button class="primary" id="look">Look away</button>
+      <button id="grab">Inspect &amp; sign</button>
+      <span class="rate-note mono">Rate: 1 work / 4 s · running since 2026</span>
     </div>
     <p class="walltext">
-      1959 byggde <b>Jean Tinguely</b> en maskin som ritade abstrakt konst på löpande band —
-      ett skämt om det spontana geniet. Den här maskinen ritar också. Men den <b>slumpar</b> inte fram
-      sina verk; den <b>hämtar</b> dem ur ett rum där varje möjlig teckning redan är en punkt.
-      Bandet stannar aldrig, upprepar sig aldrig exakt — och skapar ändå aldrig något nytt.
-      Räknaren räknar. Originalen förblir <span class="zero">noll</span>.
+      In 1959 <b>Jean Tinguely</b> built a machine that drew abstract art on a conveyor belt —
+      a joke about the spontaneous genius. This machine draws too. But it does not <b>randomize</b>
+      its works; it <b>retrieves</b> them from a space where every possible drawing is already a point.
+      The belt never stops, never repeats exactly — and yet never creates anything new.
+      The counter counts. The originals remain <span class="zero">zero</span>.
     </p>
   </div>
 
   <div class="aside">
     <div class="panel">
-      <div class="hd"><span class="t">Din väg genom rummet</span><span class="n">inga kanter · allt återkommer</span></div>
+      <div class="hd"><span class="t">Your path through the space</span><span class="n">no edges · everything recurs</span></div>
       <canvas id="map" width="560" height="560"></canvas>
     </div>
     <div class="panel cert-wrap">
-      <div class="hd"><span class="t">Äkthetsbevis</span><span class="n" id="ledger-count">0 plockade</span></div>
+      <div class="hd"><span class="t">Certificates of authenticity</span><span class="n" id="ledger-count">0 signed</span></div>
       <div class="ledger" id="ledger">
-        <div class="empty">Inget plockat än. Det du plockar blir <em>ditt</em> — signerat av dig, ritat av ingen.</div>
+        <div class="empty">Nothing signed yet. What you sign becomes <em>yours</em> — signed by you, drawn by no one.</div>
       </div>
     </div>
   </div>
 </div>
 
 <footer class="credit">
-  <span>Kinetisk konst → latent rum · epicykler över ett kontinuerligt fält</span>
-  <span>Ett original förblir noll · <a href="https://en.wikipedia.org/wiki/M%C3%A9tamatic" target="_blank" rel="noopener">om Métamatics</a></span>
+  <span>Kinetic art → latent space · epicycles over a continuous field</span>
+  <span>One original remains zero · <a href="https://en.wikipedia.org/wiki/M%C3%A9tamatic" target="_blank" rel="noopener">about Métamatics</a></span>
 </footer>
 
 <script>
 (() => {
   "use strict";
   const TAU = Math.PI * 2;
+
+  /* ---------- global tally backend (optional; page works fully without it) ----------
+     Set API to the deployed Cloudflare Worker URL to enable the shared, global
+     signature tally. Leave it "" and the page runs fully offline: the global
+     chip shows "—", the "signed N times" line stays hidden, and everything else
+     (belt, inspect, local sign + save) keeps working from localStorage alone. */
+  const API = "https://meta-matic-api.tor-bjorn-com.workers.dev";
+  const apiEnabled = () => typeof API === "string" && API.length > 0;
+
+  async function apiGet(path) {
+    if (!apiEnabled()) return null;
+    try {
+      const r = await fetch(API + path, { method: "GET" });
+      if (!r.ok) return null;
+      return await r.json();
+    } catch (e) { return null; } // unreachable/offline — degrade silently
+  }
+  async function apiPost(path, body) {
+    if (!apiEnabled()) return null;
+    try {
+      const r = await fetch(API + path, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body)
+      });
+      if (!r.ok) return null;
+      return await r.json();
+    } catch (e) { return null; }
+  }
 
   /* ---------- smooth deterministic noise ---------- */
   function h1(i) { // integer -> [0,1). Math.imul keeps the 32-bit multiply exact
@@ -468,21 +503,22 @@
   }
 
   /* ---------- the machine runs on wall-clock, not on the viewer ---------- */
-  const BIRTH_S = Date.UTC(2026, 0, 1, 0, 0, 0) / 1000; // maskinens födelse
-  const RATE_S  = 4;         // sekunder per verk — maskinens takt, ej justerbar
-  const STRIDE  = 236;       // px per plåt (plåt + mellanrum)
-  // serie som ren funktion av tiden -> samma för alla, alltid, utan server
+  const BIRTH_S = Date.UTC(2026, 0, 1, 0, 0, 0) / 1000; // the machine's birth
+  const RATE_S  = 4;         // seconds per work — the machine's rate, not adjustable
+  const STRIDE  = 236;       // px per plate (plate + gap)
+  // serial as a pure function of time -> same for everyone, always, without a server
   function machineSerial() { return (Date.now() / 1000 - BIRTH_S) / RATE_S; }
 
   const state = {
-    scroll: 0,               // px; sätts varje ram = viewSerial * STRIDE
-    looking: true,           // tittar du live, eller har du tittat bort?
-    frozenSerial: 0,         // vy-serie när du tittade bort
-    produced: 0,             // objektiv: verk sedan födelsen (härleds ur tiden)
+    scroll: 0,               // px; set each frame = viewSerial * STRIDE
+    looking: true,           // are you watching live, or have you looked away?
+    frozenSerial: 0,         // view-serial when you looked away
+    produced: 0,             // objective: works since birth (derived from time)
     signed: 0,
     minted: [],
     lastBase: -1,
-    centerSerial: 0
+    centerSerial: 0,
+    globalTotal: null        // global tally from the backend; null = unknown/offline
   };
   const seenBuf = []; // {g,u,v}
   const SEAM_EPS = 0.020;
@@ -555,7 +591,7 @@
       // serial label
       bctx.fillStyle = muted;
       bctx.textAlign = "center";
-      bctx.fillText("№ " + serial.toLocaleString("sv-SE"), cx, cy + half2 + 15);
+      bctx.fillText("№ " + serial.toLocaleString("en-US"), cx, cy + half2 + 15);
 
       const d = Math.abs(cx - centerScreen);
       if (d < bestD) { bestD = d; bestSerial = serial; }
@@ -580,7 +616,7 @@
     const X = u => pad + u * box;
     const Y = v => pad + v * box;
 
-    // frame ("rummet")
+    // frame ("the space")
     mctx.strokeStyle = css("--line");
     mctx.lineWidth = 1;
     mctx.strokeRect(pad, pad, box, box);
@@ -633,7 +669,7 @@
       if (dd < bestD) { bestD = dd; best = p; }
     }
     if (best) {
-      seamEl.innerHTML = "≈ NÄSTAN IDENTISK · sedd för " + (serial - best.g).toLocaleString("sv-SE") + " verk sedan";
+      seamEl.innerHTML = "≈ NEARLY IDENTICAL · seen " + (serial - best.g).toLocaleString("en-US") + " works ago";
       seamEl.classList.add("on");
       seamTimer = 2.2;
     }
@@ -671,42 +707,50 @@
   const el = {
     produced: document.getElementById("t-produced"),
     signed: document.getElementById("t-signed"),
+    global: document.getElementById("t-global"),
     coord: document.getElementById("t-coord"),
     ledger: document.getElementById("ledger"),
     ledgerCount: document.getElementById("ledger-count")
   };
+  function updateGlobalChip() {
+    // global tally across all browsers — "—" until the backend answers (or forever, offline)
+    el.global.textContent = state.globalTotal == null
+      ? "—"
+      : state.globalTotal.toLocaleString("en-US");
+  }
   function updateHUD() {
-    // produced is objective: verk sedan födelsen, härlett ur tiden — tickar även
-    // medan du tittar bort (maskinen bryr sig inte om att du tittar).
+    // produced is objective: works since birth, derived from time — it ticks even
+    // while you look away (the machine does not care that you are watching).
     state.produced = Math.floor(machineSerial());
-    el.produced.textContent = state.produced.toLocaleString("sv-SE");
-    el.signed.textContent = state.signed.toLocaleString("sv-SE");
+    el.produced.textContent = state.produced.toLocaleString("en-US");
+    el.signed.textContent = state.signed.toLocaleString("en-US");
     const c = coordFor(state.centerSerial);
     el.coord.textContent = c.u.toFixed(3) + " , " + c.v.toFixed(3);
   }
 
   /* ---------- grab / certify ---------- */
   const QUIPS = [
-    "Signerad av dig. Ritad av ingen. Hämtad ur ett rum som bara innehåller det som redan fanns.",
-    "Unikt serienummer. Icke-unikt verk. Grannpunkten är nästan omöjlig att skilja från denna.",
-    "Du valde en koordinat. Det är hela din insats. Resten fanns före dig.",
-    "Ett äkthetsbevis för något som aldrig var nytt. Det är själva poängen.",
-    "Din signatur gör den till din. Ingenting gör den till ett original."
+    "Signed by you. Drawn by no one. Retrieved from a space that only holds what already existed.",
+    "Unique serial number. Non-unique work. The neighbouring point is almost impossible to tell from this one.",
+    "You chose a coordinate. That is your entire contribution. The rest was here before you.",
+    "A certificate of authenticity for something that was never new. That is the whole point.",
+    "Your signature makes it yours. Nothing makes it an original."
   ];
-  // Persistens: sparas i DENNA webbläsare (localStorage) — överlever omladdning
-  // och återbesök, men delas inte mellan webbläsare/enheter. En äkta global
-  // tally skulle kräva en extern server, vilket den fristående filen inte har.
+  // Persistence: stored in THIS browser (localStorage) — survives reload and
+  // return visits, but is not shared across browsers/devices. A true global
+  // tally needs an external server, which the standalone file does not have
+  // (that is what the API constant above wires up when set).
   const LS_KEY = "metamatic-inf-v1";
   function persist() {
     try { localStorage.setItem(LS_KEY, JSON.stringify({ signed: state.signed, minted: state.minted })); }
-    catch (e) { /* privat läge e.d. — fortsätt utan att spara */ }
+    catch (e) { /* private mode etc. — carry on without saving */ }
   }
   function restore() {
     try {
       const d = JSON.parse(localStorage.getItem(LS_KEY) || "null");
       if (d && typeof d.signed === "number") state.signed = d.signed;
       if (d && Array.isArray(d.minted)) state.minted = d.minted.slice(0, 24);
-    } catch (e) { /* trasig data — ignorera */ }
+    } catch (e) { /* corrupt data — ignore */ }
   }
 
   function mint(serial) {
@@ -717,15 +761,23 @@
     persist();
     renderLedger();
     updateHUD();
-    seamEl.innerHTML = "✓ SIGNERAD · № " + serial.toLocaleString("sv-SE") + " är nu din";
+    seamEl.innerHTML = "✓ SIGNED · № " + serial.toLocaleString("en-US") + " is now yours";
     seamEl.classList.add("on");
     seamTimer = 2.2;
+    // Record the signature in the global ledger (best-effort; no-op when API is empty
+    // or unreachable). The response carries the fresh global total + this work's count.
+    apiPost("/sign", { serial }).then(res => {
+      if (res && typeof res.total === "number") {
+        state.globalTotal = res.total;
+        updateGlobalChip();
+      }
+    });
   }
   function renderLedger() {
-    el.ledgerCount.textContent = state.signed.toLocaleString("sv-SE") + " signerade · denna webbläsare";
+    el.ledgerCount.textContent = state.signed.toLocaleString("en-US") + " signed · this browser";
     if (!state.minted.length) {
-      el.ledger.innerHTML = '<div class="empty">Inget signerat än. Klicka på ett verk för att granska det stort — ' +
-        'det du signerar blir <em>ditt</em>, ritat av ingen. Sparas i den här webbläsaren.</div>';
+      el.ledger.innerHTML = '<div class="empty">Nothing signed yet. Click a work to inspect it enlarged — ' +
+        'what you sign becomes <em>yours</em>, drawn by no one. Saved in this browser.</div>';
       return;
     }
     el.ledger.innerHTML = "";
@@ -738,17 +790,17 @@
       const meta = document.createElement("div");
       meta.className = "meta";
       meta.innerHTML =
-        (idx === 0 ? '<span class="tag">Senast</span>' : '') +
-        '<div class="row"><span class="lab">Serie</span><span class="val">№ ' + m.serial.toLocaleString("sv-SE") + '</span></div>' +
-        '<div class="row"><span class="lab">Koord</span><span class="val">' + m.u.toFixed(4) + ' , ' + m.v.toFixed(4) + '</span></div>' +
-        '<div class="row"><span class="lab">Avtryck</span><span class="val">' + m.fp + '</span></div>' +
+        (idx === 0 ? '<span class="tag">Latest</span>' : '') +
+        '<div class="row"><span class="lab">Serial</span><span class="val">№ ' + m.serial.toLocaleString("en-US") + '</span></div>' +
+        '<div class="row"><span class="lab">Coord</span><span class="val">' + m.u.toFixed(4) + ' , ' + m.v.toFixed(4) + '</span></div>' +
+        '<div class="row"><span class="lab">Print</span><span class="val">' + m.fp + '</span></div>' +
         (idx === 0 ? '<div class="quip">' + QUIPS[m.serial % QUIPS.length] + '</div>' : '') +
-        '<button class="cert-save" data-serial="' + m.serial + '">↓ Spara bild</button>';
+        '<button class="cert-save" data-serial="' + m.serial + '">↓ Save image</button>';
       wrap.appendChild(cv); wrap.appendChild(meta);
       el.ledger.appendChild(wrap);
     });
   }
-  // Bara signerade verk (de i liggaren) kan sparas — signeringen är handlingen.
+  // Only signed works (those in the ledger) can be saved — signing is the act.
   el.ledger.addEventListener("click", e => {
     const btn = e.target.closest(".cert-save");
     if (btn) saveImage(+btn.dataset.serial);
@@ -771,7 +823,7 @@
     x.fillText("Original 0", S - pad, 84);
     x.fillStyle = muted; x.textAlign = "left";
     x.font = "22px ui-monospace, Menlo, monospace";
-    x.fillText("№ " + serial.toLocaleString("sv-SE"), pad, S - pad + 44);
+    x.fillText("№ " + serial.toLocaleString("en-US"), pad, S - pad + 44);
     x.textAlign = "right";
     x.fillStyle = faint;
     x.fillText(c.u.toFixed(4) + " , " + c.v.toFixed(4) + "  ·  " + fingerprint(serial, c.u, c.v), S - pad, S - pad + 44);
@@ -807,21 +859,27 @@
   const fSerial = document.getElementById("f-serial");
   const fCoord = document.getElementById("f-coord");
   const fFp = document.getElementById("f-fp");
+  const fSignedRow = document.getElementById("f-signed-row");
   let focusSerial = null;
+  let signedReqSeq = 0; // guards against a stale /stats answer landing on a newer work
 
-  function serialAtX(clientX) {
-    const rect = stage.getBoundingClientRect();
-    const baseF = state.scroll / STRIDE;
-    const base = Math.floor(baseF), frac = baseF - base;
-    const i = Math.round(((clientX - rect.left) - W / 2 + frac * STRIDE) / STRIDE);
-    return base + i;
+  // The gut-punch: how many others already signed this "unique" pick.
+  function showSignedCount(serial, count) {
+    if (count > 0) {
+      fSignedRow.innerHTML = "This work has been signed <b>" +
+        count.toLocaleString("en-US") + "</b> " + (count === 1 ? "time" : "times") + " before you.";
+    } else {
+      fSignedRow.innerHTML = "No one has signed this work yet. You could be the first.";
+    }
+    fSignedRow.hidden = false;
   }
+
   function openFocus(serial) {
     focusSerial = serial;
     if (reduced) state.frozenSerial = machineSerial();
     else if (state.looking) setLooking(false);
     const c = coordFor(serial);
-    fSerial.textContent = "№ " + serial.toLocaleString("sv-SE");
+    fSerial.textContent = "№ " + serial.toLocaleString("en-US");
     fCoord.textContent = c.u.toFixed(4) + " , " + c.v.toFixed(4);
     fFp.textContent = fingerprint(serial, c.u, c.v);
     const cssSize = Math.max(180, Math.min(300, Math.round(stage.clientWidth * 0.44)));
@@ -831,11 +889,26 @@
     fctx.setTransform(d, 0, 0, d, 0, 0);
     fctx.clearRect(0, 0, cssSize, cssSize);
     drawWork(fctx, cssSize / 2, cssSize / 2, cssSize, c.u, c.v, css("--ink"));
+
+    // Global "signed N times" line. Hidden when offline (page stays fully usable).
+    const seq = ++signedReqSeq;
+    fSignedRow.hidden = true;
+    fSignedRow.innerHTML = "";
+    if (apiEnabled()) {
+      apiGet("/stats?serial=" + serial).then(res => {
+        if (seq !== signedReqSeq) return; // a newer work is open now — drop this answer
+        if (!res) return;                 // offline/unreachable — leave the line hidden
+        if (typeof res.total === "number") { state.globalTotal = res.total; updateGlobalChip(); }
+        if (typeof res.count === "number") showSignedCount(serial, res.count);
+      });
+    }
+
     focusEl.hidden = false;
     document.getElementById("f-sign").focus();
   }
   function closeFocus(silent) {
     focusEl.hidden = true;
+    signedReqSeq++; // invalidate any in-flight /stats for the closed work
     if (reduced) {
       state.frozenSerial = machineSerial();
       state.scroll = state.frozenSerial * STRIDE;
@@ -846,7 +919,7 @@
   }
   document.getElementById("f-sign").addEventListener("click", () => {
     if (focusSerial != null) mint(focusSerial);
-    closeFocus(true); // keep the "signerad" confirmation, skip the missed flash
+    closeFocus(true); // keep the "signed" confirmation, skip the missed flash
   });
   document.getElementById("f-release").addEventListener("click", () => closeFocus(false));
   focusEl.addEventListener("click", e => { if (e.target === focusEl) closeFocus(false); });
@@ -859,11 +932,11 @@
 
   function setStatus(live) {
     statusEl.classList.toggle("away", !live);
-    statusT.textContent = live ? "Live" : "Tittar bort";
+    statusT.textContent = live ? "Live" : "Looking away";
   }
   function flashMissed(missed) {
     if (missed <= 0) return;
-    seamEl.innerHTML = "⌛ DU TITTADE BORT · " + missed.toLocaleString("sv-SE") + " verk passerade utan dig";
+    seamEl.innerHTML = "⌛ YOU LOOKED AWAY · " + missed.toLocaleString("en-US") + " works passed without you";
     seamEl.classList.add("on"); seamTimer = 2.8;
   }
 
@@ -873,7 +946,7 @@
     if (live) { if (!silent) flashMissed(Math.floor(machineSerial()) - Math.floor(state.frozenSerial)); }
     else state.frozenSerial = machineSerial();
     state.looking = live;
-    lookBtn.textContent = live ? "Titta bort" : "Titta nu";
+    lookBtn.textContent = live ? "Look away" : "Look now";
     setStatus(live);
   }
   // Reduced-motion: no autoplay. The button fetches a fresh still of "now".
@@ -889,7 +962,7 @@
   document.getElementById("grab").addEventListener("click", () => openFocus(state.centerSerial));
   belt.addEventListener("click", e => openFocus(serialAtX(e.clientX)));
   if (reduced) {
-    lookBtn.textContent = "Titta nu";
+    lookBtn.textContent = "Look now";
     lookBtn.addEventListener("click", refreshNow);
   } else {
     lookBtn.addEventListener("click", () => setLooking(!state.looking));
@@ -899,6 +972,14 @@
     if (e.code === "Space") { e.preventDefault(); reduced ? refreshNow() : setLooking(!state.looking); }
     else if (e.key === "s" || e.key === "S") { if (focusEl.hidden) openFocus(state.centerSerial); }
   });
+
+  function serialAtX(clientX) {
+    const rect = stage.getBoundingClientRect();
+    const baseF = state.scroll / STRIDE;
+    const base = Math.floor(baseF), frac = baseF - base;
+    const i = Math.round(((clientX - rect.left) - W / 2 + frac * STRIDE) / STRIDE);
+    return base + i;
+  }
 
   /* ---------- loop (motion only) ---------- */
   let lastT = performance.now();
@@ -927,16 +1008,25 @@
   resize();
   restore();
   renderLedger();
+  updateGlobalChip();
   const start = machineSerial();
   state.frozenSerial = start;
   state.scroll = start * STRIDE;
   state.centerSerial = Math.round(start);
   seedHistory(Math.floor(start));
 
+  // Pull the global total once at boot (best-effort; no-op when API is empty/offline).
+  apiGet("/stats").then(res => {
+    if (res && typeof res.total === "number") {
+      state.globalTotal = res.total;
+      updateGlobalChip();
+    }
+  });
+
   if (reduced) {
     state.looking = false;
     statusEl.classList.add("away");
-    statusT.textContent = "Stillbild";
+    statusT.textContent = "Still frame";
     hint.classList.remove("hidden");
     renderBelt(); renderMap(); updateHUD();
   } else {
