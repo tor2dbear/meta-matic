@@ -372,7 +372,7 @@
      signature tally. Leave it "" and the page runs fully offline: the global
      chip shows "—", the "signed N times" line stays hidden, and everything else
      (belt, inspect, local sign + save) keeps working from localStorage alone. */
-  const API = "";
+  const API = "https://meta-matic-api.tor-bjorn-com.workers.dev";
   const apiEnabled = () => typeof API === "string" && API.length > 0;
 
   async function apiGet(path) {
