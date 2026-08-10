@@ -133,10 +133,12 @@
 
   /* Hero column: header + belt + console fill the first screen; the belt (stage)
      flexes to take the slack. "The space" band then lives below the fold. */
-  .hero { display: flex; flex-direction: column; min-height: 100vh; min-height: 100dvh; }
+  .hero { display: flex; flex-direction: column; }
 
   /* ---- Belt stage ---- */
-  .stage { position: relative; flex: 1 1 auto; min-height: 300px; background: var(--paper); overflow: hidden; }
+  /* The belt is a horizontal strip — give it a bounded height so it doesn't swim in
+     empty space on tall screens (it used to fill the whole viewport). */
+  .stage { position: relative; flex: 0 0 auto; height: clamp(320px, 46vh, 480px); background: var(--paper); overflow: hidden; }
   #belt { display: block; width: 100%; height: 100%; cursor: pointer; }
 
   .sign-marker {
