@@ -788,18 +788,30 @@
     const centerScreen = W / 2;
     let bestD = Infinity, bestSerial = base;
 
-    // diffusion phase — future works to the right are unresolved and collapse at
-    // "now" (centre). Turbulence animates with wall-clock time; static under
-    // reduced-motion (still displaced, just not moving).
+    // Two-phase future. Past & now are fixed and definite (signable). The future is
+    // unresolved in two sequential phases, not blended: BEYOND the commit point the
+    // coordinate itself is unknown → diffusion ("which point?"); INSIDE the commit
+    // point the coordinate is known but the work is still forming → morph (it wobbles
+    // through nearby points in the latent walk), settling to its definite form exactly
+    // at now. Turbulence/morph animate with wall-clock time; frozen on look-away and
+    // under reduced-motion.
     const ph = (state.looking && !reduced) ? performance.now() * 0.00035 : (state.frozenSerial || 0);
+    const FC = 0.45; // commit point, as a fraction of the half-belt right of now
     bctx.font = "10px ui-monospace, Menlo, monospace";
     for (let i = -half; i <= half; i++) {
       const serial = base + i;
       const cx = centerScreen + (i * STRIDE) - (frac * STRIDE);
       if (cx < -STRIDE || cx > W + STRIDE) continue;
-      const { u, v } = coordFor(serial);
-      // 0 at/left of the signing point (past · now), ramping to 1 into the future
-      const nu = Math.max(0, Math.min(1, (cx - centerScreen) / (W * 0.36)));
+      const f = (cx - centerScreen) / (W * 0.5); // 0 at now, ~1 at right edge; <0 = past
+      let u, v, nu = 0;
+      if (f <= 0) {                     // past + now — fixed, definite
+        ({ u, v } = coordFor(serial));
+      } else {                          // future — morph (near), then diffusion (far)
+        const morph = 0.7 * Math.min(1, f / FC);                 // 0 at now → max at commit
+        const mS = serial + morph * (value1(serial * 3.3 + ph * 2) - 0.5) * 2; // wobble along the walk
+        ({ u, v } = coordFor(mS));
+        nu = Math.max(0, Math.min(1, (f - FC) / (1 - FC)));      // diffusion only beyond commit
+      }
 
       // plate frame
       const half2 = plate / 2;
