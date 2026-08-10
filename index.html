@@ -119,7 +119,7 @@
 
   .seam {
     position: absolute; top: 14px; left: 50%; transform: translateX(-50%);
-    z-index: 7; display: flex; align-items: center; gap: 8px; /* above the focus overlay (6) so wallet notices aren't buried under its blur */
+    z-index: 4; display: flex; align-items: center; gap: 8px; /* belt-view banner; wallet notices now render inside the focus card */
     background: var(--signal); color: #fff;
     padding: 5px 12px; font-size: 11px; letter-spacing: 0.06em;
     border-radius: 2px; opacity: 0; transition: opacity .25s ease;
@@ -156,8 +156,9 @@
 
   /* ---- Focus / inspect ---- */
   .focus {
-    position: absolute; inset: 0; z-index: 6;
+    position: fixed; inset: 0; z-index: 40;   /* true full-viewport modal, not scoped to the belt */
     display: flex; align-items: center; justify-content: center; padding: 20px;
+    overflow-y: auto;                          /* let a tall card scroll on short screens */
     background: color-mix(in srgb, var(--sunk) 76%, transparent);
     -webkit-backdrop-filter: blur(2px); backdrop-filter: blur(2px);
   }
@@ -166,6 +167,7 @@
     display: flex; gap: 24px; align-items: center;
     background: var(--surface); border: 1px solid var(--line);
     padding: 24px; max-width: min(700px, 94vw);
+    max-height: calc(100dvh - 40px); overflow-y: auto;  /* buttons stay reachable on mobile */
     box-shadow: 0 24px 70px rgba(0,0,0,.32);
   }
   .focus-card canvas {
@@ -184,6 +186,8 @@
   .fm-note { font-size: 11.5px; color: var(--muted); line-height: 1.6; margin: 3px 0 5px; }
   .fm-actions { display: flex; gap: 10px; flex-wrap: wrap; }
   .fm-fine { font-size: 10px; letter-spacing: 0.04em; color: var(--faint); margin: 4px 0 0; }
+  .fm-msg { font-size: 11.5px; line-height: 1.5; color: var(--signal); margin: 6px 0 0; }
+  .fm-msg[hidden] { display: none; }
   @media (prefers-reduced-motion: no-preference) {
     .focus-card { animation: focusin .26s cubic-bezier(.2,.7,.3,1); }
   }
@@ -192,7 +196,10 @@
 
   /* ---- Console ---- */
   .console {
-    display: grid; grid-template-columns: 1fr auto; gap: clamp(16px, 3vw, 34px);
+    /* Center the two columns (text + panel) so wide screens get symmetric margins
+       instead of a big empty gap; the full-width band (border + bg) is unaffected. */
+    display: grid; grid-template-columns: minmax(0, 60ch) auto;
+    justify-content: center; gap: clamp(24px, 4vw, 64px);
     align-items: start;
     padding: 16px clamp(16px, 4vw, 40px) 20px;
     border-top: 1px solid var(--line); background: var(--surface);
@@ -324,6 +331,7 @@
         </div>
         <p class="fm-fine">Only what you sign can be saved as an image. Signing with a
           wallet adds a free, off-chain cryptographic attestation — no gas, no chain.</p>
+        <p class="fm-msg" id="f-msg" hidden></p>
       </div>
     </div>
   </div>
@@ -807,6 +815,10 @@
   function showSeam(html, dur) {
     seamEl.innerHTML = html; seamEl.classList.add("on"); seamTimer = dur || 2.4;
   }
+  // Wallet feedback shows inside the focus card (where the user is looking) rather
+  // than the belt seam, which the full-screen inspect modal now covers.
+  function showCardMsg(text) { const m = document.getElementById("f-msg"); m.textContent = text; m.hidden = false; }
+  function clearCardMsg() { const m = document.getElementById("f-msg"); m.textContent = ""; m.hidden = true; }
   function attestationMessage(serial, c, fp, iso) {
     return [
       "Méta-Matic ∞ — attestation",
@@ -823,8 +835,9 @@
   async function signWithWallet(serial) {
     const eth = window.ethereum;
     if (!eth || typeof eth.request !== "function") {
-      showSeam("⚠ NO WALLET · install an Ethereum wallet to attest"); return;
+      showCardMsg("No Ethereum wallet detected. Install one (e.g. MetaMask) to attest."); return;
     }
+    clearCardMsg();
     // Tie this request to the current focus instance. If the user releases and
     // opens another work while the wallet prompt is pending, a late approval must
     // not mint the old work or close the newer dialog.
@@ -832,7 +845,7 @@
     try {
       const accounts = await eth.request({ method: "eth_requestAccounts" });
       const address = accounts && accounts[0];
-      if (!address) { showSeam("⚠ NO ACCOUNT · wallet returned no address"); return; }
+      if (!address) { showCardMsg("Your wallet returned no address."); return; }
       const c = coordFor(serial);
       const fp = fingerprint(serial, c.u, c.v);
       const iso = new Date().toISOString();
@@ -843,8 +856,9 @@
       showSeam("⛓ WALLET-ATTESTED · " + shortAddr(address) + " signed № " + serial.toLocaleString("en-US"), 2.8);
       closeFocus(true); // keep the attest confirmation, skip the missed-works flash
     } catch (err) {
+      if (gen !== signedReqSeq) return; // focus moved on — don't message a stale dialog
       const declined = err && (err.code === 4001 || /reject|denied|declined/i.test(err.message || ""));
-      showSeam(declined ? "✕ DECLINED · wallet signature cancelled" : "✕ WALLET ERROR · could not sign");
+      showCardMsg(declined ? "Wallet signature cancelled." : "Couldn’t sign — wallet error.");
     }
   }
 
@@ -938,6 +952,7 @@
 
   /* ---------- focus / inspect (click -> freeze + enlarge -> deliberate sign) ---------- */
   const focusEl = document.getElementById("focus");
+  const focusCard = focusEl.querySelector(".focus-card");
   const focusCanvas = document.getElementById("focus-canvas");
   const fctx = focusCanvas.getContext("2d");
   const fSerial = document.getElementById("f-serial");
@@ -987,11 +1002,15 @@
       });
     }
 
+    clearCardMsg();
     focusEl.hidden = false;
-    document.getElementById("f-sign").focus();
+    document.body.style.overflow = "hidden"; // lock background scroll behind the modal
+    focusCard.scrollTop = 0; focusEl.scrollTop = 0; // reopen at the top (card is the scroll container on short screens)
+    document.getElementById("f-sign").focus({ preventScroll: true });
   }
   function closeFocus(silent) {
     focusEl.hidden = true;
+    document.body.style.overflow = ""; // release background scroll
     signedReqSeq++; // invalidate any in-flight /stats for the closed work
     if (reduced) {
       state.frozenSerial = machineSerial();
