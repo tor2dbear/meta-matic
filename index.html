@@ -139,7 +139,9 @@
   /* The belt is a horizontal strip — give it a bounded height so it doesn't swim in
      empty space on tall screens (it used to fill the whole viewport). */
   .stage { position: relative; flex: 0 0 auto; height: clamp(320px, 46vh, 480px); background: var(--paper); overflow: hidden; }
-  #belt { display: block; width: 100%; height: 100%; cursor: pointer; }
+  /* pan-y: vertical swipes still scroll the page; horizontal drags are ours (scrub). */
+  #belt { display: block; width: 100%; height: 100%; cursor: grab; touch-action: pan-y; }
+  .stage.grabbing #belt { cursor: grabbing; }
 
   .sign-marker {
     position: absolute; top: 0; bottom: 0; left: 50%; width: 0;
@@ -183,7 +185,12 @@
     font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase;
     color: var(--muted); background: color-mix(in srgb, var(--surface) 82%, transparent);
     border: 1px solid var(--line); padding: 4px 9px;
+    font-family: inherit; cursor: pointer; -webkit-tap-highlight-color: transparent;
   }
+  .statuspill:hover { border-color: var(--muted); }
+  .statuspill:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
+  /* when parked/scrubbed the pill is the way back — nudge it visually */
+  .statuspill.away { border-color: color-mix(in srgb, var(--signal) 45%, var(--line)); }
   .statuspill .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--signal); }
   .statuspill.away { color: var(--signal); }
   .statuspill.away .dot { background: var(--signal); opacity: .5; }
@@ -401,12 +408,12 @@
 
 <div class="stage" id="stage">
   <canvas id="belt" aria-label="A conveyor belt of machine-drawn works that continuously morph into one another"></canvas>
-  <div class="statuspill" id="status"><span class="dot"></span><span id="status-t">Live</span></div>
+  <button class="statuspill" id="status" type="button" aria-label="Playback: live or parked. Click to return to now."><span class="dot"></span><span id="status-t">Live</span></button>
   <div class="sign-marker" aria-hidden="true"></div>
   <div class="seam" id="seam" role="status"></div>
   <div class="stage-hint hidden" id="hint">
     <b>The machine is running.</b><br>
-    Your screen shows a still frame — press <b>Look now</b> to fetch the present.
+    Your screen shows a still frame — tap <b>Still frame ▸ Live</b> (top-left) to fetch the present.
     It has been drawing in your absence.
   </div>
   <div class="focus" id="focus" hidden>
@@ -435,9 +442,8 @@
 <div class="console">
   <div class="controls">
     <div class="btn-row">
-      <button class="primary" id="look">Look away</button>
-      <button id="grab">Inspect &amp; sign</button>
-      <span class="rate-note mono">Rate: 1 work / 4 s · running since 2026</span>
+      <button class="primary" id="grab">Inspect &amp; sign</button>
+      <span class="rate-note mono">Drag the belt to scrub · Rate: 1 work / 4 s · since 2026</span>
     </div>
     <p class="walltext">
       In 1959 <b>Jean Tinguely</b> built a machine that drew abstract art on a conveyor belt —
@@ -806,12 +812,17 @@
     // so mobile misses the diffusion rather than cramming it into one plate.
     const SPAN = 3;
     const ss = x => { x = x < 0 ? 0 : x > 1 ? 1 : x; return x * x * (3 - 2 * x); };
+    // The diffusion pivots on the TRUE live head (real machine time), not the view
+    // centre. So when you scrub back into history, the works between your view and now
+    // are already drawn (serial <= liveHeadF → resolved), and only the genuine future
+    // stays noise. In plain live mode liveHeadF == the view centre, so nothing changes.
+    const liveHeadF = machineSerial();
     bctx.font = "10px ui-monospace, Menlo, monospace";
     for (let i = -half; i <= half; i++) {
       const serial = base + i;
       const cx = centerScreen + (i * STRIDE) - (frac * STRIDE);
       if (cx < -STRIDE || cx > W + STRIDE) continue;
-      const f = (i - frac) / SPAN; // serials ahead of now / SPAN — 0 at now, <0 = past. Screen-independent.
+      const f = (serial - liveHeadF) / SPAN; // serials ahead of the live head / SPAN — 0 at now, <0 = past.
       let u, v, nu = 0, redFade = 0;
       if (f <= 0) {                     // past + now — fixed, definite, locked
         ({ u, v } = coordFor(serial));
@@ -1153,6 +1164,7 @@
     el.signed.textContent = state.signed.toLocaleString("en-US");
     const c = coordFor(state.scroll / STRIDE);   // continuous head — glides, matches the map crosshair
     el.coord.textContent = c.u.toFixed(3) + ", " + c.v.toFixed(3);
+    if (!state.looking && !reduced) updateLiveChip();   // parked: keep the −N offset current as now advances
   }
 
   /* ---------- grab / certify ---------- */
@@ -1369,6 +1381,7 @@
   const fFp = document.getElementById("f-fp");
   const fSignedRow = document.getElementById("f-signed-row");
   let focusSerial = null;
+  let resumeLive = false;   // on close, resume live only if we were live before opening
   let signedReqSeq = 0; // guards against a stale /stats answer landing on a newer work
 
   // The gut-punch: how many others already signed this "unique" pick.
@@ -1384,8 +1397,8 @@
 
   function openFocus(serial) {
     focusSerial = serial;
-    if (reduced) state.frozenSerial = machineSerial();
-    else if (state.looking) setLooking(false);
+    if (reduced) { state.frozenSerial = machineSerial(); resumeLive = false; }
+    else { resumeLive = state.looking; if (state.looking) setLooking(false); }
     const c = coordFor(serial);
     fSerial.textContent = "№ " + serial.toLocaleString("en-US");
     fCoord.textContent = c.u.toFixed(4) + " , " + c.v.toFixed(4);
@@ -1425,8 +1438,10 @@
       state.frozenSerial = machineSerial();
       state.scroll = state.frozenSerial * STRIDE;
       renderBelt(); renderMap(); updateHUD();
+    } else if (resumeLive) {
+      setLooking(true, silent);   // was live before inspecting → resume the live belt
     } else {
-      setLooking(true, silent);
+      setStatus(false);           // was parked in history → stay parked, keep browsing
     }
   }
   document.getElementById("f-sign").addEventListener("click", () => {
@@ -1441,30 +1456,39 @@
 
   /* ---------- controls ---------- */
   const hint = document.getElementById("hint");
-  const lookBtn = document.getElementById("look");
   const statusEl = document.getElementById("status");
   const statusT = document.getElementById("status-t");
 
+  const MAXBACK = 500;                       // how far back a scrub can reach (works)
+  function liveNow() { return machineSerial(); }   // the machine's real present, always advancing
+
+  // The pill is the single playback control: it shows whether you're live or parked,
+  // how far back you've scrubbed, and clicking it returns you to now.
+  function updateLiveChip() {
+    if (reduced) { statusT.textContent = state.looking ? "Live" : "Still frame"; return; }
+    if (state.looking) { statusT.textContent = "Live"; return; }
+    const back = Math.round(liveNow()) - Math.round(state.frozenSerial);
+    statusT.textContent = back > 0 ? "▸ Live · −" + back.toLocaleString("en-US") : "▸ Live · paused";
+  }
   function setStatus(live) {
     statusEl.classList.toggle("away", !live);
-    statusT.textContent = live ? "Live" : "Looking away";
+    updateLiveChip();
   }
   function flashMissed(missed) {
     if (missed <= 0) return;
-    seamEl.innerHTML = "⌛ YOU LOOKED AWAY · " + missed.toLocaleString("en-US") + " works passed without you";
+    seamEl.innerHTML = "⌛ " + missed.toLocaleString("en-US") + " works passed while you were away";
     seamEl.classList.add("on"); seamTimer = 2.8;
   }
 
-  // You can look away, but you cannot stop the machine. Resume = jump to now.
+  // You can look away or scrub back, but you cannot stop the machine. Resume = jump to now.
   function setLooking(live, silent) {
     if (live === state.looking) return;
     if (live) { if (!silent) flashMissed(Math.floor(machineSerial()) - Math.floor(state.frozenSerial)); }
     else state.frozenSerial = machineSerial();
     state.looking = live;
-    lookBtn.textContent = live ? "Look away" : "Look now";
     setStatus(live);
   }
-  // Reduced-motion: no autoplay. The button fetches a fresh still of "now".
+  // Reduced-motion: no autoplay. The pill fetches a fresh still of "now".
   function refreshNow() {
     const prev = Math.floor(state.frozenSerial);
     state.frozenSerial = machineSerial();
@@ -1474,18 +1498,59 @@
     flashMissed(Math.floor(state.frozenSerial) - prev);
   }
 
+  // The pill: return to now (or, when live, park here). Under reduced motion it fetches now.
+  statusEl.addEventListener("click", () => { reduced ? refreshNow() : setLooking(!state.looking); });
+
   document.getElementById("grab").addEventListener("click", () => openFocus(state.centerSerial));
+
+  /* ---------- scrub: drag the belt back and forth through time ----------
+     Horizontal drag parks the view at an earlier serial (history is fixed & signable);
+     you cannot drag past the live head into the unresolved future. A tap (no drag) still
+     opens the work under the finger. Releasing at/after now snaps back to live. */
+  let ptrDown = false, scrubbing = false, startX = 0, startSerial = 0, moved = 0;
+  belt.addEventListener("pointerdown", e => {
+    if (!focusEl.hidden) return;
+    ptrDown = true; scrubbing = false; startX = e.clientX; moved = 0;
+  });
+  belt.addEventListener("pointermove", e => {
+    if (!ptrDown) return;
+    const dx = e.clientX - startX;
+    if (Math.abs(dx) > moved) moved = Math.abs(dx);
+    if (!scrubbing) {
+      if (Math.abs(dx) < 6) return;               // below threshold — could still be a tap
+      scrubbing = true;
+      if (state.looking) setLooking(false, true); // silent freeze — a scrub is not "looking away"
+      startSerial = state.frozenSerial;
+      startX = e.clientX;                          // rebaseline so the grab doesn't jump
+      try { belt.setPointerCapture(e.pointerId); } catch (_) {}
+      stage.classList.add("grabbing");
+      return;
+    }
+    const now = liveNow();
+    let s = startSerial - (e.clientX - startX) / STRIDE;   // drag right → back in time
+    s = Math.min(now, Math.max(now - MAXBACK, s));          // clamp to [now−MAXBACK, now]
+    state.frozenSerial = s;
+    if (reduced) { state.scroll = s * STRIDE; renderBelt(); renderMap(); updateHUD(); }
+  });
+  function endScrub(e) {
+    if (!ptrDown) return;
+    ptrDown = false;
+    if (!scrubbing) return;
+    try { belt.releasePointerCapture(e.pointerId); } catch (_) {}
+    stage.classList.remove("grabbing");
+    if (!reduced && state.frozenSerial >= liveNow() - 0.01) setLooking(true, true); // back at now → live
+    else updateLiveChip();
+  }
+  belt.addEventListener("pointerup", endScrub);
+  belt.addEventListener("pointercancel", endScrub);
+
   belt.addEventListener("click", e => {
+    if (moved > 6) { moved = 0; return; }         // that was a scrub, not a tap
     const s = serialAtX(e.clientX);
-    if (s > state.centerSerial) return;   // future works are unresolved (noise/morph) — not signable
+    if (s > Math.floor(liveNow())) return;        // the true future is unresolved — not signable
     openFocus(s);
   });
-  if (reduced) {
-    lookBtn.textContent = "Look now";
-    lookBtn.addEventListener("click", refreshNow);
-  } else {
-    lookBtn.addEventListener("click", () => setLooking(!state.looking));
-  }
+
   window.addEventListener("keydown", e => {
     if (e.key === "Escape" && !focusEl.hidden) { closeFocus(false); return; }
     if (e.key === "Escape" && drawerEl.classList.contains("open")) { setDrawer(false); return; }
