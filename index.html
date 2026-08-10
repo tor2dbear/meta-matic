@@ -319,6 +319,7 @@
     background: var(--drawer); border-left: 1px solid var(--line);
     display: flex; flex-direction: column;
     transform: translateX(100%); transition: transform .28s cubic-bezier(.2,.7,.3,1);
+    touch-action: pan-y;   /* vertical scroll of the ledger; horizontal drag = dismiss */
   }
   /* shadow only while open — otherwise the offscreen drawer's shadow bleeds onto
      the right edge of the page even when closed. */
@@ -974,6 +975,49 @@
   }
   youToggle.addEventListener("click", () => setDrawer(!drawerEl.classList.contains("open")));
   document.getElementById("drawer-x").addEventListener("click", () => setDrawer(false));
+
+  // Tap outside to dismiss. Capture-phase so the tap that closes the drawer is
+  // swallowed (it doesn't also open an inspect card behind it). The handle is
+  // excluded so its own toggle still works.
+  document.addEventListener("click", e => {
+    if (!drawerEl.classList.contains("open")) return;
+    if (drawerEl.contains(e.target) || youToggle.contains(e.target)) return;
+    setDrawer(false);
+    e.stopPropagation(); e.preventDefault();
+  }, true);
+
+  // Drag the drawer rightward to dismiss. touch-action:pan-y (in CSS) keeps the
+  // ledger vertically scrollable; we only claim horizontal drags.
+  let dStartX = 0, dStartY = 0, dragging = false, dDx = 0, tracking = false;
+  drawerEl.addEventListener("pointerdown", e => {
+    if (!drawerEl.classList.contains("open")) return;
+    if (e.pointerType === "mouse" && e.button !== 0) return;
+    dStartX = e.clientX; dStartY = e.clientY; dDx = 0; dragging = false; tracking = true;
+  });
+  drawerEl.addEventListener("pointermove", e => {
+    if (!tracking) return;
+    const dx = e.clientX - dStartX, dy = e.clientY - dStartY;
+    if (!dragging) {
+      if (Math.abs(dx) < 6 && Math.abs(dy) < 6) return;
+      if (Math.abs(dy) >= Math.abs(dx)) { tracking = false; return; } // vertical → let it scroll
+      dragging = true;
+      drawerEl.style.transition = "none";
+      try { drawerEl.setPointerCapture(e.pointerId); } catch (_) {}
+    }
+    dDx = Math.max(0, dx);
+    drawerEl.style.transform = "translateX(" + dDx + "px)";
+  });
+  function endDrag() {
+    tracking = false;
+    if (!dragging) return;
+    dragging = false;
+    drawerEl.style.transition = "";
+    drawerEl.style.transform = "";
+    if (dDx > drawerEl.offsetWidth * 0.33) setDrawer(false);
+    dDx = 0;
+  }
+  drawerEl.addEventListener("pointerup", endDrag);
+  drawerEl.addEventListener("pointercancel", endDrag);
   function updateHUD() {
     // produced is objective: works since birth, derived from time — it ticks even
     // while you look away (the machine does not care that you are watching).
@@ -1030,7 +1074,8 @@
     persist();
     renderLedger();
     updateHUD();
-    setDrawer(true);   // surface the drawer so the fresh certificate lands in view
+    // The "Signed · you" count (with its ▾ handle) updates to reflect the new
+    // certificate; the drawer stays user-controlled rather than auto-opening.
     seamEl.innerHTML = "✓ SIGNED · № " + serial.toLocaleString("en-US") + " is now yours";
     seamEl.classList.add("on");
     seamTimer = 2.2;
