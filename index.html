@@ -952,6 +952,7 @@
 
   /* ---------- focus / inspect (click -> freeze + enlarge -> deliberate sign) ---------- */
   const focusEl = document.getElementById("focus");
+  const focusCard = focusEl.querySelector(".focus-card");
   const focusCanvas = document.getElementById("focus-canvas");
   const fctx = focusCanvas.getContext("2d");
   const fSerial = document.getElementById("f-serial");
@@ -1004,7 +1005,7 @@
     clearCardMsg();
     focusEl.hidden = false;
     document.body.style.overflow = "hidden"; // lock background scroll behind the modal
-    focusEl.scrollTop = 0;
+    focusCard.scrollTop = 0; focusEl.scrollTop = 0; // reopen at the top (card is the scroll container on short screens)
     document.getElementById("f-sign").focus({ preventScroll: true });
   }
   function closeFocus(silent) {
