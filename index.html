@@ -789,15 +789,22 @@
     const muted = css("--muted"), faint = css("--faint"),
           blue = css("--blue"), signal = css("--signal"), paper = css("--paper");
 
-    // faint sample field — a jittered lattice bleeding to all edges: the latent
-    // space as ground (low contrast, reads behind everything). No frame.
-    mctx.fillStyle = faint; mctx.globalAlpha = 0.26;
-    const cols = Math.max(28, Math.round(W / (26 * dpr))), rows = Math.max(10, Math.round(H / (26 * dpr)));
-    for (let a = 0; a < cols; a++) {
-      for (let b = 0; b < rows; b++) {
-        const jx = value2(a * 1.7, b * 2.3), jy = value2(a * 3.1, b * 1.1);
-        const gx = (a + jx * 0.6) / cols * W, gy = (b + jy * 0.6) / rows * H;
-        mctx.fillRect(gx - dpr * 0.6, gy - dpr * 0.6, dpr * 1.2, dpr * 1.2);
+    // the coordinate lattice — a regular dot grid at 0.1-unit spacing, aligned to the
+    // [0,1] projection but tiled across the WHOLE band and dissolving at the edges:
+    // the space is a measured field that continues past the window (no box, no edges).
+    // The [0,1] unit where the walk lives is just one region of the endless lattice.
+    const step = s * 0.1, fadePx = 70 * dpr;
+    const kx0 = Math.ceil((0 - ox) / step), kx1 = Math.floor((W - ox) / step);
+    const ky0 = Math.ceil((0 - oy) / step), ky1 = Math.floor((H - oy) / step);
+    mctx.fillStyle = faint;
+    for (let kx = kx0; kx <= kx1; kx++) {
+      const gx = ox + kx * step;
+      for (let ky = ky0; ky <= ky1; ky++) {
+        const gy = oy + ky * step;
+        const f = Math.min(gx, W - gx, gy, H - gy) / fadePx;
+        if (f <= 0) continue;
+        mctx.globalAlpha = 0.4 * Math.min(1, f);
+        mctx.beginPath(); mctx.arc(gx, gy, 1.05 * dpr, 0, TAU); mctx.fill();
       }
     }
     mctx.globalAlpha = 1;
@@ -865,10 +872,18 @@
     mctx.textAlign = "left";
 
     // the machine · now — the head of the shared walk (everyone's live position,
-    // not "yours"); when you look away it shows the point you froze on.
+    // not "yours"); when you look away it shows the point you froze on. A full-span
+    // crosshair locates it in the lattice and its coordinate is read out beside it —
+    // the same value the header shows — tying the map to the readout. Both live.
     const cc = coordFor(state.centerSerial);
     const nx = X(cc.u), ny = Y(cc.v);
-    mctx.fillStyle = signal;
+    mctx.strokeStyle = signal; mctx.globalAlpha = 0.36; mctx.lineWidth = 1 * dpr;
+    mctx.beginPath(); mctx.moveTo(0, ny); mctx.lineTo(W, ny); mctx.stroke();
+    mctx.beginPath(); mctx.moveTo(nx, 0); mctx.lineTo(nx, H); mctx.stroke();
+    mctx.globalAlpha = 1;
+    mctx.fillStyle = signal; mctx.textAlign = "left";
+    mctx.font = (10 * dpr) + "px ui-monospace, Menlo, monospace";
+    mctx.fillText(cc.u.toFixed(3) + ", " + cc.v.toFixed(3), nx + 11 * dpr, ny - 9 * dpr);
     mctx.beginPath(); mctx.arc(nx, ny, 3.6 * dpr, 0, TAU); mctx.fill();
     mctx.strokeStyle = signal; mctx.globalAlpha = 0.5; mctx.lineWidth = 1 * dpr;
     mctx.beginPath(); mctx.arc(nx, ny, 7 * dpr, 0, TAU); mctx.stroke(); mctx.globalAlpha = 1;
