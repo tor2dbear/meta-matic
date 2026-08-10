@@ -319,9 +319,11 @@
           What you sign becomes <em>yours</em> — drawn by no one.</p>
         <div class="fm-actions">
           <button class="primary" id="f-sign">Sign &amp; keep</button>
+          <button id="f-wallet">⛓ Sign with wallet</button>
           <button id="f-release">Release · keep looking</button>
         </div>
-        <p class="fm-fine">Only what you sign can be saved as an image.</p>
+        <p class="fm-fine">Only what you sign can be saved as an image. Signing with a
+          wallet adds a free, off-chain cryptographic attestation — no gas, no chain.</p>
       </div>
     </div>
   </div>
@@ -748,6 +750,13 @@
   // tally needs an external server, which the standalone file does not have
   // (that is what the API constant above wires up when set).
   const LS_KEY = "metamatic-inf-v1";
+  // Stable per-entry id so the ledger's Save button targets the exact certificate
+  // that was clicked, not just the newest entry sharing its serial.
+  let uidCounter = 0;
+  function uidFor() {
+    if (self.crypto && typeof crypto.randomUUID === "function") return crypto.randomUUID();
+    return "m" + (++uidCounter) + "-" + Math.random().toString(36).slice(2, 10);
+  }
   function persist() {
     try { localStorage.setItem(LS_KEY, JSON.stringify({ signed: state.signed, minted: state.minted })); }
     catch (e) { /* private mode etc. — carry on without saving */ }
@@ -757,12 +766,15 @@
       const d = JSON.parse(localStorage.getItem(LS_KEY) || "null");
       if (d && typeof d.signed === "number") state.signed = d.signed;
       if (d && Array.isArray(d.minted)) state.minted = d.minted.slice(0, 24);
+      state.minted.forEach(m => { if (!m.uid) m.uid = uidFor(); }); // backfill older saves
     } catch (e) { /* corrupt data — ignore */ }
   }
 
-  function mint(serial) {
+  function mint(serial, wallet) {
     const c = coordFor(serial);
-    state.minted.unshift({ serial, u: c.u, v: c.v, fp: fingerprint(serial, c.u, c.v) });
+    const entry = { uid: uidFor(), serial, u: c.u, v: c.v, fp: fingerprint(serial, c.u, c.v) };
+    if (wallet) entry.wallet = wallet;   // optional off-chain attestation
+    state.minted.unshift(entry);
     if (state.minted.length > 24) state.minted.pop();
     state.signed++;
     persist();
@@ -780,6 +792,58 @@
       }
     });
   }
+
+  /* ---------- optional wallet attestation (off-chain personal_sign; free, no gas) ----------
+     Completes the satire: you pay nothing, yet cryptographically "prove" ownership
+     of a work that was never original. Fully optional — needs an injected EIP-1193
+     wallet (window.ethereum); degrades to a friendly notice when none is present.
+     Nothing is written to any chain; the signature is a portable, offline-verifiable
+     attestation kept next to the local ledger entry. */
+  const shortAddr = a => (a ? a.slice(0, 6) + "…" + a.slice(-4) : "");
+  function showSeam(html, dur) {
+    seamEl.innerHTML = html; seamEl.classList.add("on"); seamTimer = dur || 2.4;
+  }
+  function attestationMessage(serial, c, fp, iso) {
+    return [
+      "Méta-Matic ∞ — attestation",
+      "",
+      "I sign work № " + serial + ".",
+      "Coordinate: " + c.u.toFixed(6) + ", " + c.v.toFixed(6),
+      "Fingerprint: " + fp,
+      "Originals: 0",
+      "Time: " + iso,
+      "",
+      "This attests authorship of a work that was never original."
+    ].join("\n");
+  }
+  async function signWithWallet(serial) {
+    const eth = window.ethereum;
+    if (!eth || typeof eth.request !== "function") {
+      showSeam("⚠ NO WALLET · install an Ethereum wallet to attest"); return;
+    }
+    // Tie this request to the current focus instance. If the user releases and
+    // opens another work while the wallet prompt is pending, a late approval must
+    // not mint the old work or close the newer dialog.
+    const gen = signedReqSeq;
+    try {
+      const accounts = await eth.request({ method: "eth_requestAccounts" });
+      const address = accounts && accounts[0];
+      if (!address) { showSeam("⚠ NO ACCOUNT · wallet returned no address"); return; }
+      const c = coordFor(serial);
+      const fp = fingerprint(serial, c.u, c.v);
+      const iso = new Date().toISOString();
+      const message = attestationMessage(serial, c, fp, iso);
+      const signature = await eth.request({ method: "personal_sign", params: [message, address] });
+      if (gen !== signedReqSeq) return; // focus moved on — drop this stale completion
+      mint(serial, { address, signature, message, ts: iso });
+      showSeam("⛓ WALLET-ATTESTED · " + shortAddr(address) + " signed № " + serial.toLocaleString("en-US"), 2.8);
+      closeFocus(true); // keep the attest confirmation, skip the missed-works flash
+    } catch (err) {
+      const declined = err && (err.code === 4001 || /reject|denied|declined/i.test(err.message || ""));
+      showSeam(declined ? "✕ DECLINED · wallet signature cancelled" : "✕ WALLET ERROR · could not sign");
+    }
+  }
+
   function renderLedger() {
     el.ledgerCount.textContent = state.signed.toLocaleString("en-US") + " signed · this browser";
     if (!state.minted.length) {
@@ -801,8 +865,9 @@
         '<div class="row"><span class="lab">Serial</span><span class="val">№ ' + m.serial.toLocaleString("en-US") + '</span></div>' +
         '<div class="row"><span class="lab">Coord</span><span class="val">' + m.u.toFixed(4) + ' , ' + m.v.toFixed(4) + '</span></div>' +
         '<div class="row"><span class="lab">Print</span><span class="val">' + m.fp + '</span></div>' +
+        (m.wallet ? '<div class="row"><span class="lab">Wallet</span><span class="val" title="' + m.wallet.address + '">⛓ ' + shortAddr(m.wallet.address) + '</span></div>' : '') +
         (idx === 0 ? '<div class="quip">' + QUIPS[m.serial % QUIPS.length] + '</div>' : '') +
-        '<button class="cert-save" data-serial="' + m.serial + '">↓ Save image</button>';
+        '<button class="cert-save" data-uid="' + m.uid + '">↓ Save image</button>';
       wrap.appendChild(cv); wrap.appendChild(meta);
       el.ledger.appendChild(wrap);
     });
@@ -810,11 +875,12 @@
   // Only signed works (those in the ledger) can be saved — signing is the act.
   el.ledger.addEventListener("click", e => {
     const btn = e.target.closest(".cert-save");
-    if (btn) saveImage(+btn.dataset.serial);
+    if (btn) saveImage(btn.dataset.uid);
   });
 
   /* ---------- export a signed work as a shareable PNG ---------- */
-  function exportCanvas(serial) {
+  function exportCanvas(entry) {
+    const serial = entry.serial;
     const S = 1400, pad = 150;
     const cv = document.createElement("canvas"); cv.width = S; cv.height = S;
     const x = cv.getContext("2d");
@@ -834,6 +900,11 @@
     x.textAlign = "right";
     x.fillStyle = faint;
     x.fillText(c.u.toFixed(4) + " , " + c.v.toFixed(4) + "  ·  " + fingerprint(serial, c.u, c.v), S - pad, S - pad + 44);
+    if (entry.wallet && entry.wallet.address) {
+      x.textAlign = "left"; x.fillStyle = muted;
+      x.font = "18px ui-monospace, Menlo, monospace";
+      x.fillText("wallet-attested · " + entry.wallet.address, pad, S - pad + 80);
+    }
     return cv;
   }
   function anchorDownload(blob, filename) {
@@ -842,9 +913,11 @@
     a.href = url; a.download = filename; document.body.appendChild(a); a.click();
     a.remove(); setTimeout(() => URL.revokeObjectURL(url), 4000);
   }
-  function saveImage(serial) {
-    const filename = "meta-matic-" + serial + ".png";
-    exportCanvas(serial).toBlob(async blob => {
+  function saveImage(uid) {
+    const entry = state.minted.find(e => e.uid === uid);
+    if (!entry) return;
+    const filename = "meta-matic-" + entry.serial + ".png";
+    exportCanvas(entry).toBlob(async blob => {
       if (!blob) return;
       const dl = window.claude && window.claude.downloads;
       if (dl && typeof dl.save === "function") {
@@ -927,6 +1000,9 @@
   document.getElementById("f-sign").addEventListener("click", () => {
     if (focusSerial != null) mint(focusSerial);
     closeFocus(true); // keep the "signed" confirmation, skip the missed flash
+  });
+  document.getElementById("f-wallet").addEventListener("click", () => {
+    if (focusSerial != null) signWithWallet(focusSerial);
   });
   document.getElementById("f-release").addEventListener("click", () => closeFocus(false));
   focusEl.addEventListener("click", e => { if (e.target === focusEl) closeFocus(false); });
