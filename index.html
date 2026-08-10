@@ -672,13 +672,13 @@
     ctx.globalAlpha = 0.92 * (1 - Math.min(1, nu * 1.2));
     if (nu < 0.9) ctx.fill();
     if (nu > 0.02) {
-      const halfS = size / 2, gN = Math.round(size * size * 0.014 * nu);
+      const halfS = size / 2, gN = Math.round(size * size * 0.032 * nu);   // denser noise field
       const seed = Math.floor(ph * 40);            // ~9 Hz flicker; static when frozen
       const ux = (u * 997) | 0, vy = (v * 991) | 0;
-      ctx.globalAlpha = Math.min(0.6, 0.72 * nu);
+      ctx.globalAlpha = Math.min(0.7, 0.9 * nu);
       for (let k = 0; k < gN; k++) {
         const rx = h2(k * 2 + seed, ux), ry = h2(k * 2 + 1 + seed * 3, vy);
-        ctx.fillRect(cx - halfS + rx * size, cy - halfS + ry * size, 1.2, 1.2);
+        ctx.fillRect(cx - halfS + rx * size, cy - halfS + ry * size, 1.3, 1.3);
       }
     }
     ctx.globalAlpha = 1;
@@ -794,7 +794,13 @@
     // at now. Turbulence/morph animate with wall-clock time; frozen on look-away and
     // under reduced-motion.
     const ph = (state.looking && !reduced) ? performance.now() * 0.00022 : (state.frozenSerial || 0);
-    const FC = 0.45; // commit point, as a fraction of the half-belt right of now
+    // Diffusion pipeline thresholds (f = 0 at now .. 1 at right edge). Noise fades in
+    // over [NOISE0, NOISE1]; the committed offset (morph) eases to 0 over [LOCK, MORPH1].
+    // The bands OVERLAP around commit, so a work eases from noise into morph rather than
+    // switching abruptly; LOCK > 0 so the morph is settled (locked) just before the
+    // signing point (before the red frame).
+    const NOISE0 = 0.32, NOISE1 = 0.78, LOCK = 0.15, MORPH1 = 0.60;
+    const ss = x => { x = x < 0 ? 0 : x > 1 ? 1 : x; return x * x * (3 - 2 * x); };
     bctx.font = "10px ui-monospace, Menlo, monospace";
     for (let i = -half; i <= half; i++) {
       const serial = base + i;
@@ -802,17 +808,13 @@
       if (cx < -STRIDE || cx > W + STRIDE) continue;
       const f = (cx - centerScreen) / (W * 0.5); // 0 at now, ~1 at right edge; <0 = past
       let u, v, nu = 0;
-      if (f <= 0) {                     // past + now — fixed, definite
+      if (f <= 0) {                     // past + now — fixed, definite, locked
         ({ u, v } = coordFor(serial));
-      } else {                          // future — diffusion (far), then morph (near)
-        nu = Math.max(0, Math.min(1, (f - FC) / (1 - FC)));      // diffusion only beyond commit
-        // Clean pipeline: noise -> static committed still -> morph -> locked.
-        // The committed coordinate (a fixed +/-0.5 neighbour) is HELD through the
-        // noise zone, so the still that denoises out at the commit point is crisp
-        // and not yet morphing. Only inside the commit point does it settle,
-        // monotonically, to the final work at now -- no wander, no overlap.
+      } else {                          // future — noise → (overlap) → morph → locked
+        nu = ss((f - NOISE0) / (NOISE1 - NOISE0));               // noise field; denoises approaching now
+        const mp = ss((f - LOCK) / (MORPH1 - LOCK));             // committed offset, eased to 0 (locked)
         const off = (value1(serial * 1.7) - 0.5);                // fixed per-work direction (+/-0.5 serial)
-        ({ u, v } = coordFor(serial + off * Math.min(1, f / FC)));
+        ({ u, v } = coordFor(serial + off * mp));
       }
 
       // plate frame
