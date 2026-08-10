@@ -464,10 +464,11 @@
     const G = genesFor(u, v);
     const amp = size * 0.44 * G.scale;
     const T = TAU * G.cycles;
-    // Segment count scales with rendered size × loops, so the polyline keeps a
-    // constant on-screen density: the belt is unchanged (floored at 1050) while
-    // large renders like the PNG export get enough points to stay smooth, not faceted.
-    const steps = Math.max(1050, Math.round(size * G.cycles * 0.6));
+    // Interactive draws (belt, inspect, ledger — all well under 600px) keep the
+    // original 1050 steps, so the per-frame belt cost is unchanged. Only large
+    // static renders like the 1400px PNG export scale up (with size × loops) to
+    // stay smooth instead of faceted.
+    const steps = size >= 600 ? Math.round(size * G.cycles * 0.6) : 1050;
     const cr = Math.cos(G.rot), sr = Math.sin(G.rot);
     ctx.save();
     // Clip each work to its own cell. A work's radius can reach ~0.62·size while
