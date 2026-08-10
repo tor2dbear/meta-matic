@@ -318,7 +318,7 @@
   </div>
   <div class="telemetry">
     <div class="chip"><div class="k">Works produced</div><div class="v" id="t-produced">0</div></div>
-    <div class="chip"><div class="k">Coordinate</div><div class="v" id="t-coord" style="font-size:13px">—</div></div>
+    <div class="chip"><div class="k">Coordinate</div><div class="v coord" id="t-coord">—</div></div>
     <div class="chip"><div class="k">Signed · you</div><div class="v" id="t-signed">0</div></div>
     <div class="chip system"><div class="k">Signed · all</div><div class="v" id="t-global">—</div></div>
   </div>
@@ -606,7 +606,16 @@
     const ms = map.clientWidth * dpr;
     map.width = Math.round(ms); map.height = Math.round(ms);
   }
-  window.addEventListener("resize", resize);
+  // Re-fit whenever the stage's actual size changes — not just on window resize.
+  // Fonts settling and flex reflow after boot change the stage height, and a
+  // one-off resize() at boot would leave the belt's backing store at the wrong
+  // aspect ratio (stretched, non-square plates) until the next window resize.
+  function refit() {
+    resize();
+    if (reduced || !state.looking) { renderBelt(); renderMap(); }
+  }
+  window.addEventListener("resize", refit);
+  if (window.ResizeObserver) new ResizeObserver(refit).observe(stage);
 
   /* ---------- render belt ---------- */
   function renderBelt() {
@@ -828,7 +837,7 @@
     el.produced.textContent = state.produced.toLocaleString("en-US");
     el.signed.textContent = state.signed.toLocaleString("en-US");
     const c = coordFor(state.centerSerial);
-    el.coord.textContent = c.u.toFixed(3) + " , " + c.v.toFixed(3);
+    el.coord.textContent = c.u.toFixed(3) + ", " + c.v.toFixed(3);
   }
 
   /* ---------- grab / certify ---------- */
