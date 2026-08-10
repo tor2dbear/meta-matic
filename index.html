@@ -603,7 +603,12 @@
     // original 1050 steps, so the per-frame belt cost is unchanged. Only large
     // static renders like the 1400px PNG export scale up (with size × loops) to
     // stay smooth instead of faceted.
-    const steps = size >= 600 ? Math.round(size * G.cycles * 0.6) : 1050;
+    // Ribbon fill anti-aliases the edges, so fewer steps are needed than the old
+    // stroke. The belt (small, animated) uses the fewest for 60fps; inspect/export
+    // (larger, rendered once) scale up for crispness.
+    const steps = size >= 600 ? Math.round(size * G.cycles * 0.6)
+                : size >= 240 ? 900
+                : 560;
     const cr = Math.cos(G.rot), sr = Math.sin(G.rot);
     ctx.save();
     // Clip each work to its own cell. A work's radius can reach ~0.62·size while
@@ -612,7 +617,8 @@
     ctx.beginPath();
     ctx.rect(cx - size / 2, cy - size / 2, size, size);
     ctx.clip();
-    ctx.beginPath();
+    // trace the epicycle into a point buffer
+    const bx = new Float64Array(steps + 1), by = new Float64Array(steps + 1);
     for (let s = 0; s <= steps; s++) {
       const t = (s / steps) * T;
       let X = 0, Y = 0;
@@ -620,17 +626,43 @@
         X += h.w * Math.cos(h.fx * t + h.px);
         Y += h.w * Math.sin(h.fy * t + h.py);
       }
-      const rx = (X * cr - Y * sr) * amp;
-      const ry = (X * sr + Y * cr) * amp;
-      if (s === 0) ctx.moveTo(cx + rx, cy + ry);
-      else ctx.lineTo(cx + rx, cy + ry);
+      bx[s] = cx + (X * cr - Y * sr) * amp;
+      by[s] = cy + (X * sr + Y * cr) * amp;
     }
-    ctx.strokeStyle = color;
-    ctx.lineWidth = G.lw * (lwMul || 1);
-    ctx.lineJoin = "round";
-    ctx.lineCap = "round";
+
+    // Per-point line weight from local pen speed — thin where the pen moves fast,
+    // heavy where it slows (ink-pen physics). Rendered as a filled ribbon, so the
+    // weight varies smoothly AND the edges are anti-aliased (no faceting). Width is
+    // a deterministic function of the path, so a given work always renders the same.
+    const base = G.lw * (lwMul || 1);
+    const sp = new Float64Array(steps + 1);
+    let mean = 0;
+    for (let s = 1; s <= steps; s++) { sp[s] = Math.hypot(bx[s] - bx[s-1], by[s] - by[s-1]); mean += sp[s]; }
+    sp[0] = sp[1]; mean = mean / steps || 1;
+    const half = new Float64Array(steps + 1);
+    for (let s = 0; s <= steps; s++) {
+      const m = Math.max(0, Math.min(1, 1.35 - 0.7 * (sp[s] / mean)));
+      half[s] = Math.max(0.28, base * (0.45 + 1.10 * m)) / 2;   // floor keeps thin parts from vanishing
+    }
+
+    // ribbon = one filled quad per segment; nonzero winding merges the overlaps
+    ctx.beginPath();
+    for (let s = 0; s < steps; s++) {
+      let dx = bx[s+1] - bx[s], dy = by[s+1] - by[s];
+      const L = Math.hypot(dx, dy) || 1e-6; dx /= L; dy /= L;
+      const nx = -dy, ny = dx, wa = half[s], wb = half[s+1];
+      ctx.moveTo(bx[s] + nx*wa, by[s] + ny*wa);
+      ctx.lineTo(bx[s+1] + nx*wb, by[s+1] + ny*wb);
+      ctx.lineTo(bx[s+1] - nx*wb, by[s+1] - ny*wb);
+      ctx.lineTo(bx[s] - nx*wa, by[s] - ny*wa);
+    }
+    // round the joints only on large static renders (sub-pixel on small belt cells)
+    if (size >= 600) {
+      for (let s = 0; s <= steps; s++) { ctx.moveTo(bx[s] + half[s], by[s]); ctx.arc(bx[s], by[s], half[s], 0, TAU); }
+    }
+    ctx.fillStyle = color;
     ctx.globalAlpha = 0.92;
-    ctx.stroke();
+    ctx.fill();
     ctx.restore();
   }
 
