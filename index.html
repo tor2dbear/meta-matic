@@ -12,6 +12,7 @@
     /* Light — "technical paper", workshop */
     --paper:   #e4e2da;
     --surface: #edece6;
+    --drawer:  #f3f1eb;   /* raised plane (certificates menu) — brighter than the page */
     --sunk:    #dcdad1;
     --ink:     #1a1c20;
     --muted:   #6b6f78;
@@ -27,6 +28,7 @@
     @media (prefers-color-scheme: dark) {
       --paper:   #121317;
       --surface: #1a1c21;
+      --drawer:  #23262e;   /* raised plane in dark reads lighter than the page */
       --sunk:    #0d0e11;
       --ink:     #e7e4da;
       --muted:   #83868f;
@@ -42,6 +44,7 @@
   :root[data-theme="dark"] {
     --paper:   #121317;
     --surface: #1a1c21;
+    --drawer:  #23262e;   /* raised plane in dark reads lighter than the page */
     --sunk:    #0d0e11;
     --ink:     #e7e4da;
     --muted:   #83868f;
@@ -107,6 +110,18 @@
   .chip .k { font-size: 9.5px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted); }
   .chip .v { font-size: 18px; letter-spacing: -0.01em; margin-top: 3px; }
   .chip.system .v { color: var(--blue); }
+  /* "Signed · you" is the handle for the certificates drawer */
+  button.chip.you {
+    font-family: inherit; text-align: left; background: transparent;
+    border: none; border-left: 1px solid var(--line-2); cursor: pointer;
+    text-transform: none; letter-spacing: normal; color: inherit;
+    transition: color .12s;
+  }
+  button.chip.you:hover, button.chip.you[aria-expanded="true"] { color: var(--blue); background: transparent; }
+  button.chip.you:hover .v, button.chip.you[aria-expanded="true"] .v { color: var(--blue); }
+  button.chip.you:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
+  .chip.you .cue { font-size: 12px; margin-left: 5px; color: var(--faint); vertical-align: 1px; }
+  button.chip.you[aria-expanded="true"] .cue { color: var(--blue); }
 
   /* ---- Belt stage ---- */
   .stage { position: relative; flex: 1 1 auto; min-height: 300px; background: var(--paper); overflow: hidden; }
@@ -148,7 +163,8 @@
   .stage-hint.hidden { display: none; }
 
   .statuspill {
-    position: absolute; top: 12px; left: 14px; z-index: 4;
+    /* align to the same content margin as header / console / footer (was a 14px gap) */
+    position: absolute; top: 12px; left: clamp(16px, 4vw, 40px); z-index: 4;
     display: flex; align-items: center; gap: 7px;
     font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase;
     color: var(--muted); background: color-mix(in srgb, var(--surface) 82%, transparent);
@@ -206,11 +222,10 @@
 
   /* ---- Console ---- */
   .console {
-    /* Center the two columns (text + panel) so wide screens get symmetric margins
-       instead of a big empty gap; the full-width band (border + bg) is unaffected. */
-    display: grid; grid-template-columns: minmax(0, 60ch) auto;
-    justify-content: center; gap: clamp(24px, 4vw, 64px);
-    align-items: start;
+    /* Single centered column now that the certificates moved into the drawer and
+       "the space" moved into its own full-bleed band below. */
+    display: grid; grid-template-columns: minmax(0, 72ch);
+    justify-content: center;
     padding: 16px clamp(16px, 4vw, 40px) 20px;
     border-top: 1px solid var(--line); background: var(--surface);
   }
@@ -248,28 +263,60 @@
   .walltext b { color: var(--ink); font-weight: 700; }
   .walltext .zero { color: var(--signal); font-weight: 700; }
 
-  /* right column: minimap + ledger */
-  .aside { display: flex; flex-direction: column; gap: 14px; width: min(300px, 42vw); }
-  .panel { border: 1px solid var(--line); background: var(--paper); }
-  .panel .hd {
-    display: flex; align-items: baseline; justify-content: space-between; gap: 8px;
-    padding: 8px 11px; border-bottom: 1px solid var(--line-2);
+  /* ---- The space — unboxed, full-bleed band ---- */
+  .spaceband {
+    position: relative; height: clamp(300px, 42vh, 440px);
+    background: var(--paper); border-top: 1px solid var(--line); overflow: hidden;
   }
-  .panel .hd .t { font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; }
-  .panel .hd .n { font-size: 9.5px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--faint); }
-  #map { display: block; width: 100%; height: auto; }
-  .map-legend {
-    display: flex; gap: 12px; flex-wrap: wrap; padding: 8px 11px;
-    border-top: 1px solid var(--line-2);
+  #map { position: absolute; inset: 0; display: block; width: 100%; height: 100%; }
+  .sb-label { position: absolute; top: 14px; left: clamp(16px, 4vw, 40px); pointer-events: none; }
+  .sb-label .t { display: block; font-size: 10px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--muted); }
+  .sb-label .s { display: block; font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--faint); margin-top: 3px; }
+  .sb-legend {
+    position: absolute; bottom: 12px; left: clamp(16px, 4vw, 40px);
+    display: flex; gap: 14px; flex-wrap: wrap;
     font-size: 8.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted);
+    pointer-events: none;
   }
-  .map-legend span { display: flex; align-items: center; gap: 5px; }
-  .map-legend i { display: inline-block; width: 10px; height: 10px; flex: 0 0 auto; }
-  .map-legend .lg-path { width: 14px; height: 0; border-top: 2px solid var(--muted); }
-  .map-legend .lg-mark { border: 1.8px solid var(--blue); border-radius: 50%; }
-  .map-legend .lg-now { background: var(--signal); border-radius: 50%; }
+  .sb-legend span { display: flex; align-items: center; gap: 5px; }
+  .sb-legend i { display: inline-block; width: 10px; height: 10px; flex: 0 0 auto; }
+  .sb-legend .lg-path { width: 14px; height: 0; border-top: 2px solid var(--muted); }
+  .sb-legend .lg-mark { border: 1.8px solid var(--blue); border-radius: 50%; }
+  .sb-legend .lg-now { background: var(--signal); border-radius: 50%; }
+  .sb-coord {
+    position: absolute; bottom: 12px; right: clamp(16px, 4vw, 40px);
+    font-size: 10px; letter-spacing: 0.04em; color: var(--faint); pointer-events: none;
+  }
 
-  .ledger { max-height: 236px; overflow-y: auto; }
+  /* ---- Certificates drawer — a raised plane, its own brightness ---- */
+  .drawer {
+    position: fixed; top: 0; right: 0; z-index: 45;
+    width: min(360px, 90vw); height: 100dvh;
+    background: var(--drawer); border-left: 1px solid var(--line);
+    box-shadow: -20px 0 46px -28px rgba(0,0,0,.5);
+    display: flex; flex-direction: column;
+    transform: translateX(100%); transition: transform .28s cubic-bezier(.2,.7,.3,1);
+  }
+  .drawer.open { transform: none; }
+  .drawer-hd {
+    display: flex; align-items: baseline; justify-content: space-between; gap: 8px;
+    padding: 16px clamp(16px, 4vw, 40px) 12px 18px; border-bottom: 1px solid var(--line-2);
+  }
+  .drawer-t { font-size: 11px; letter-spacing: 0.16em; text-transform: uppercase; }
+  .drawer-n { font-size: 9.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--faint); margin-left: 10px; }
+  .drawer-x {
+    font-family: inherit; font-size: 13px; line-height: 1; cursor: pointer;
+    background: transparent; border: 1px solid var(--line); color: var(--muted);
+    padding: 5px 8px; text-transform: none;
+  }
+  .drawer-x:hover { color: var(--ink); background: transparent; border-color: var(--muted); }
+  /* non-modal: the drawer overlays the right edge but never blocks the belt —
+     you can sign, watch the certificate slide in, and keep watching the machine. */
+  @media (prefers-reduced-motion: reduce) {
+    .drawer { transition: none; }
+  }
+
+  .ledger { flex: 1 1 auto; overflow-y: auto; padding: 4px 6px; }
   .ledger .empty { padding: 14px 12px; color: var(--faint); font-size: 11.5px; line-height: 1.5; }
   .cert { display: flex; gap: 12px; padding: 12px; border-bottom: 1px solid var(--line-2); }
   .cert:last-child { border-bottom: none; }
@@ -302,8 +349,6 @@
 
   @media (max-width: 860px) {
     .console { grid-template-columns: 1fr; }
-    .aside { width: 100%; flex-direction: row; flex-wrap: wrap; }
-    .aside .panel { flex: 1 1 240px; }
   }
   @media (prefers-reduced-motion: reduce) {
     .seam { transition: none; }
@@ -318,8 +363,10 @@
   </div>
   <div class="telemetry">
     <div class="chip"><div class="k">Works produced</div><div class="v" id="t-produced">0</div></div>
-    <div class="chip"><div class="k">Coordinate</div><div class="v" id="t-coord" style="font-size:13px">—</div></div>
-    <div class="chip"><div class="k">Signed · you</div><div class="v" id="t-signed">0</div></div>
+    <div class="chip"><div class="k">Coordinate</div><div class="v coord" id="t-coord">—</div></div>
+    <button class="chip you" id="you-toggle" type="button" aria-expanded="false" aria-controls="drawer" title="Open your certificates">
+      <div class="k">Signed · you</div><div class="v" id="t-signed">0<span class="cue" aria-hidden="true">▾</span></div>
+    </button>
     <div class="chip system"><div class="k">Signed · all</div><div class="v" id="t-global">—</div></div>
   </div>
 </header>
@@ -372,25 +419,33 @@
       The counter keeps counting.
     </p>
   </div>
-
-  <div class="aside">
-    <div class="panel">
-      <div class="hd"><span class="t">The space</span><span class="n">one path · everyone walks it</span></div>
-      <canvas id="map" width="560" height="560"></canvas>
-      <div class="map-legend">
-        <span><i class="lg-path"></i>Shared path</span>
-        <span><i class="lg-mark"></i>Your signings</span>
-        <span><i class="lg-now"></i>The machine · now</span>
-      </div>
-    </div>
-    <div class="panel cert-wrap">
-      <div class="hd"><span class="t">Your certificates</span><span class="n" id="ledger-count">0 signed</span></div>
-      <div class="ledger" id="ledger">
-        <div class="empty">Nothing signed yet. What you sign becomes <em>yours</em> — signed by you, drawn by no one.</div>
-      </div>
-    </div>
-  </div>
 </div>
+
+<!-- The space — unboxed: the machine's one path through the latent field, bleeding
+     to the page edges (no frame · the space does not end). Labels float as hairline
+     annotations on the open field. -->
+<section class="spaceband" id="spaceband" aria-label="The space — the machine's one path through the latent field">
+  <canvas id="map"></canvas>
+  <div class="sb-label"><span class="t">The space</span><span class="s">one path · everyone walks it</span></div>
+  <div class="sb-legend">
+    <span><i class="lg-path"></i>Shared path</span>
+    <span><i class="lg-mark"></i>Your signings</span>
+    <span><i class="lg-now"></i>The machine · now</span>
+  </div>
+  <div class="sb-coord mono">field continues · ∞</div>
+</section>
+
+<!-- Certificates drawer — a raised plane (its own brightness), opened from the
+     "Signed · you" handle in the header. -->
+<aside class="drawer" id="drawer" aria-label="Your certificates" aria-hidden="true">
+  <div class="drawer-hd">
+    <div><span class="drawer-t">Signed · you</span><span class="drawer-n" id="ledger-count">0 signed</span></div>
+    <button class="drawer-x" id="drawer-x" type="button" aria-label="Close">✕</button>
+  </div>
+  <div class="ledger" id="ledger">
+    <div class="empty">Nothing signed yet. What you sign becomes <em>yours</em> — signed by you, drawn by no one.</div>
+  </div>
+</aside>
 
 <footer class="credit">
   <span>Kinetic art → latent space · epicycles over a continuous field</span>
@@ -592,6 +647,7 @@
   const stage = document.getElementById("stage");
   const belt = document.getElementById("belt");
   const bctx = belt.getContext("2d");
+  const spaceband = document.getElementById("spaceband");
   const map = document.getElementById("map");
   const mctx = map.getContext("2d");
   let W = 0, H = 0, dpr = 1;
@@ -603,10 +659,24 @@
     W = stage.clientWidth; H = stage.clientHeight;
     belt.width = Math.round(W * dpr); belt.height = Math.round(H * dpr);
     bctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    const ms = map.clientWidth * dpr;
-    map.width = Math.round(ms); map.height = Math.round(ms);
+    // the space is now a wide, unboxed band — size the backing store to its real box
+    map.width = Math.round(map.clientWidth * dpr);
+    map.height = Math.round(map.clientHeight * dpr);
   }
-  window.addEventListener("resize", resize);
+  // Re-fit whenever the stage's actual size changes — not just on window resize.
+  // Fonts settling and flex reflow after boot change the stage height, and a
+  // one-off resize() at boot would leave the belt's backing store at the wrong
+  // aspect ratio (stretched, non-square plates) until the next window resize.
+  function refit() {
+    resize();
+    if (reduced || !state.looking) { renderBelt(); renderMap(); }
+  }
+  window.addEventListener("resize", refit);
+  if (window.ResizeObserver) {
+    const ro = new ResizeObserver(refit);
+    ro.observe(stage);
+    ro.observe(spaceband);   // the space band is vh-sized and font/flow-independent, but keep it exact
+  }
 
   /* ---------- render belt ---------- */
   function renderBelt() {
@@ -676,31 +746,45 @@
      viewer. So this is not "your path": it's the machine's one trajectory through
      the space, which everyone walks in lockstep. What is yours are the marks. */
   function renderMap() {
-    const s = map.width;
-    mctx.clearRect(0, 0, s, s);
-    const pad = 14 * dpr;
-    const box = s - pad * 2;
-    const X = u => pad + u * box;
-    const Y = v => pad + v * box;
-    const muted = css("--muted"), faint = css("--faint"), line = css("--line"),
+    const W = map.width, H = map.height;
+    if (!W || !H) return;
+    mctx.clearRect(0, 0, W, H);
+    // Unboxed, full-bleed: the faint sample field fills the whole band edge-to-edge
+    // (the space does not end), while the path and pins keep a legibility inset off
+    // the very edges. u spans width, v spans height — a wide panorama of the field.
+    const padX = Math.max(56 * dpr, W * 0.06), padT = 40 * dpr, padB = 34 * dpr;
+    const bx = W - padX * 2, by = H - padT - padB;
+    const X = u => padX + u * bx;
+    const Y = v => padT + v * by;
+    const muted = css("--muted"), faint = css("--faint"),
           blue = css("--blue"), signal = css("--signal"), paper = css("--paper");
 
-    // frame ("the space")
-    mctx.strokeStyle = line; mctx.lineWidth = 1;
-    mctx.strokeRect(pad, pad, box, box);
+    // faint sample field — a jittered lattice bleeding to all edges: the latent
+    // space as ground (low contrast, reads behind everything). No frame.
+    mctx.fillStyle = faint; mctx.globalAlpha = 0.26;
+    const cols = Math.max(28, Math.round(W / (26 * dpr))), rows = Math.max(10, Math.round(H / (26 * dpr)));
+    for (let a = 0; a < cols; a++) {
+      for (let b = 0; b < rows; b++) {
+        const jx = value2(a * 1.7, b * 2.3), jy = value2(a * 3.1, b * 1.1);
+        const gx = (a + jx * 0.6) / cols * W, gy = (b + jy * 0.6) / rows * H;
+        mctx.fillRect(gx - dpr * 0.6, gy - dpr * 0.6, dpr * 1.2, dpr * 1.2);
+      }
+    }
+    mctx.globalAlpha = 1;
 
     // faint trail of recently seen coords — the space fills up; everything recurs
-    mctx.fillStyle = faint;
+    mctx.fillStyle = muted;
     for (let k = 0; k < seenBuf.length; k += 2) {
       const c = seenBuf[k];
-      mctx.globalAlpha = 0.3;
+      mctx.globalAlpha = 0.16;
       mctx.fillRect(X(c.u) - 1, Y(c.v) - 1, 2, 2);
     }
     mctx.globalAlpha = 1;
 
     // the shared path — the machine's one trajectory, same for everyone. Faded to
     // nothing at both ends: an endless line passing through the window, no start,
-    // no end (no edges · everything recurs). "You · now" is its head.
+    // no end (no edges · everything recurs). Kept low-contrast so it reads as
+    // ground, not figure — the belt above stays the hero.
     const base = Math.floor(state.scroll / STRIDE);
     const WMAP = 110;
     mctx.strokeStyle = muted;
@@ -821,6 +905,18 @@
       ? "—"
       : state.globalTotal.toLocaleString("en-US");
   }
+
+  /* ---------- certificates drawer (opened from the "Signed · you" handle) ----------
+     Non-modal: it overlays the right edge but never blocks the belt or controls. */
+  const drawerEl = document.getElementById("drawer");
+  const youToggle = document.getElementById("you-toggle");
+  function setDrawer(open) {
+    drawerEl.classList.toggle("open", open);
+    drawerEl.setAttribute("aria-hidden", open ? "false" : "true");
+    youToggle.setAttribute("aria-expanded", open ? "true" : "false");
+  }
+  youToggle.addEventListener("click", () => setDrawer(!drawerEl.classList.contains("open")));
+  document.getElementById("drawer-x").addEventListener("click", () => setDrawer(false));
   function updateHUD() {
     // produced is objective: works since birth, derived from time — it ticks even
     // while you look away (the machine does not care that you are watching).
@@ -828,7 +924,7 @@
     el.produced.textContent = state.produced.toLocaleString("en-US");
     el.signed.textContent = state.signed.toLocaleString("en-US");
     const c = coordFor(state.centerSerial);
-    el.coord.textContent = c.u.toFixed(3) + " , " + c.v.toFixed(3);
+    el.coord.textContent = c.u.toFixed(3) + ", " + c.v.toFixed(3);
   }
 
   /* ---------- grab / certify ---------- */
@@ -877,6 +973,7 @@
     persist();
     renderLedger();
     updateHUD();
+    setDrawer(true);   // surface the drawer so the fresh certificate lands in view
     seamEl.innerHTML = "✓ SIGNED · № " + serial.toLocaleString("en-US") + " is now yours";
     seamEl.classList.add("on");
     seamTimer = 2.2;
@@ -1158,6 +1255,7 @@
   }
   window.addEventListener("keydown", e => {
     if (e.key === "Escape" && !focusEl.hidden) { closeFocus(false); return; }
+    if (e.key === "Escape" && drawerEl.classList.contains("open")) { setDrawer(false); return; }
     if (e.code === "Space") { e.preventDefault(); reduced ? refreshNow() : setLooking(!state.looking); }
     else if (e.key === "s" || e.key === "S") { if (focusEl.hidden) openFocus(state.centerSerial); }
   });
