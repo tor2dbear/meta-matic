@@ -806,13 +806,13 @@
         ({ u, v } = coordFor(serial));
       } else {                          // future — diffusion (far), then morph (near)
         nu = Math.max(0, Math.min(1, (f - FC) / (1 - FC)));      // diffusion only beyond commit
-        // Morph lives ONLY inside the commit point and is paced by the work's
-        // approach, not by an independent clock: it travels steadily from a fixed
-        // committed neighbour to its final self as it nears now (0 at now), and is
-        // off entirely in the diffusion zone (× (1 − nu)). No wobble, no boil.
-        const morphAmt = Math.min(1, f / FC) * (1 - nu);
-        const off = (value1(serial * 1.7) - 0.5);                // fixed per-work direction (±0.5 serial)
-        ({ u, v } = coordFor(serial + morphAmt * off));
+        // Clean pipeline: noise -> static committed still -> morph -> locked.
+        // The committed coordinate (a fixed +/-0.5 neighbour) is HELD through the
+        // noise zone, so the still that denoises out at the commit point is crisp
+        // and not yet morphing. Only inside the commit point does it settle,
+        // monotonically, to the final work at now -- no wander, no overlap.
+        const off = (value1(serial * 1.7) - 0.5);                // fixed per-work direction (+/-0.5 serial)
+        ({ u, v } = coordFor(serial + off * Math.min(1, f / FC)));
       }
 
       // plate frame
