@@ -52,12 +52,25 @@ Once deployed, open `index.html` and set the single flag near the top of the
 script:
 
 ```js
-const API = "https://api.tor2dbear.com";
+const API = "https://api.tor2dbear.com/meta-matic";
 ```
 
-The Worker is served from `api.tor2dbear.com` (a custom domain on the
-tor2dbear.com zone, configured via the `routes` block in `wrangler.toml`); the
-`meta-matic-api.<subdomain>.workers.dev` URL keeps working as a fallback.
+The Worker is mounted under a path on the shared `api.tor2dbear.com` gateway
+(route `api.tor2dbear.com/meta-matic/*` in `wrangler.toml`), so the host root
+stays free for other projects — each new project adds its own Worker with a
+`api.tor2dbear.com/<project>/*` route. The `meta-matic-api.<subdomain>.workers.dev`
+URL keeps working as a fallback (the Worker accepts both the prefixed and bare
+paths).
+
+### One-time DNS for the gateway host
+
+A path route does **not** create DNS (only a `custom_domain` does). Give
+`api.tor2dbear.com` a proxied placeholder once, in the tor2dbear.com zone:
+
+- Type **AAAA**, name **api**, IPv6 **100::**, Proxy status **Proxied** (orange).
+
+`100::` is a discard address; all real traffic is served by the Worker route,
+never an origin. Every project under `api.tor2dbear.com/*` shares this one record.
 
 Leave it as `""` to run the page fully offline (local `localStorage` only, no
 network). The page degrades gracefully: if `API` is empty or the Worker is
