@@ -52,8 +52,12 @@ Once deployed, open `index.html` and set the single flag near the top of the
 script:
 
 ```js
-const API = "https://meta-matic-api.<your-subdomain>.workers.dev";
+const API = "https://api.tor2dbear.com";
 ```
+
+The Worker is served from `api.tor2dbear.com` (a custom domain on the
+tor2dbear.com zone, configured via the `routes` block in `wrangler.toml`); the
+`meta-matic-api.<subdomain>.workers.dev` URL keeps working as a fallback.
 
 Leave it as `""` to run the page fully offline (local `localStorage` only, no
 network). The page degrades gracefully: if `API` is empty or the Worker is

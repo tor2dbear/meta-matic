@@ -2,6 +2,14 @@ name = "meta-matic-api"
 main = "src/index.js"
 compatibility_date = "2026-08-01"
 
+# Serve the Worker from a custom domain on the tor2dbear.com zone. On `wrangler
+# deploy` this provisions the domain and creates the proxied DNS record
+# automatically (the zone must be in the same Cloudflare account). The
+# *.workers.dev URL keeps working as a fallback.
+routes = [
+  { pattern = "api.tor2dbear.com", custom_domain = true }
+]
+
 # KV namespace for the tally counters.
 # This id points at the "meta-matic-api-TALLY" namespace already created in the
 # account. To recreate from scratch: npx wrangler kv namespace create TALLY
