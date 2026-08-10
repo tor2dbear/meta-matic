@@ -301,6 +301,14 @@
   }
   /* on narrow screens the legend and the corner annotation would collide */
   @media (max-width: 640px) { .sb-coord { display: none; } }
+  /* Wide screens: the walk is a centred square with quiet side margins. Move the
+     hairline annotations INTO those margins — label + legend flanking left, the
+     "field continues" marker right — so the negative space reads as composed. */
+  @media (min-width: 900px) {
+    .sb-label  { top: 50%; bottom: auto; transform: translateY(-60px); }
+    .sb-legend { top: 50%; bottom: auto; transform: translateY(-14px); flex-direction: column; gap: 9px; }
+    .sb-coord  { top: 50%; bottom: auto; transform: translateY(-50%); }
+  }
 
   /* ---- Certificates drawer — a raised plane, its own brightness ---- */
   .drawer {
@@ -768,12 +776,16 @@
     if (!W || !H) return;
     mctx.clearRect(0, 0, W, H);
     // Unboxed, full-bleed: the faint sample field fills the whole band edge-to-edge
-    // (the space does not end), while the path and pins keep a legibility inset off
-    // the very edges. u spans width, v spans height — a wide panorama of the field.
+    // (the space does not end). The walk itself is projected ISOTROPICALLY — the same
+    // scale on u and v — so it keeps its true shape instead of being stretched wide on
+    // a broad band. It sits as a centred square; the quiet side margins are where the
+    // hairline annotations live on wide screens.
     const padX = Math.max(56 * dpr, W * 0.06), padT = 40 * dpr, padB = 34 * dpr;
     const bx = W - padX * 2, by = H - padT - padB;
-    const X = u => padX + u * bx;
-    const Y = v => padT + v * by;
+    const s = Math.min(bx, by);
+    const ox = (W - s) / 2, oy = padT + (by - s) / 2;
+    const X = u => ox + u * s;
+    const Y = v => oy + v * s;
     const muted = css("--muted"), faint = css("--faint"),
           blue = css("--blue"), signal = css("--signal"), paper = css("--paper");
 
