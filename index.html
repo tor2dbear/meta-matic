@@ -717,15 +717,23 @@
     }
     mctx.globalAlpha = 1;
 
-    // your signings — ultramarine marks, numbered to match the certificates below
+    // your signings — ultramarine marks. Draw the rings first, then the numbers
+    // with a simple vertical declutter, so clustered or duplicate marks keep
+    // readable labels that still map to the numbered certificates.
     const r = 4.5 * dpr;
-    state.minted.forEach((m, i) => {
+    state.minted.forEach(m => {
       const px = X(m.u), py = Y(m.v);
       mctx.beginPath(); mctx.arc(px, py, r, 0, TAU); mctx.fillStyle = paper; mctx.fill();
       mctx.beginPath(); mctx.arc(px, py, r, 0, TAU); mctx.strokeStyle = blue; mctx.lineWidth = 1.8 * dpr; mctx.stroke();
-      mctx.fillStyle = blue; mctx.textAlign = "left";
-      mctx.font = "700 " + (8.5 * dpr) + "px 'Helvetica Neue', Arial, sans-serif";
-      mctx.fillText(String(i + 1), px + r + 2 * dpr, py - r);
+    });
+    mctx.fillStyle = blue; mctx.textAlign = "left";
+    mctx.font = "700 " + (8.5 * dpr) + "px 'Helvetica Neue', Arial, sans-serif";
+    const lh = 10.5 * dpr, placed = [];
+    state.minted.forEach((m, i) => {
+      let lx = X(m.u) + r + 2 * dpr, ly = Y(m.v) - r, guard = 0;
+      while (guard++ < 30 && placed.some(p => Math.abs(p.x - lx) < 8 * dpr && Math.abs(p.y - ly) < lh)) ly += lh;
+      placed.push({ x: lx, y: ly });
+      mctx.fillText(String(i + 1), lx, ly);
     });
 
     // recurrence: mark near-identical signings with ≈ — your "unique" pick, twice
