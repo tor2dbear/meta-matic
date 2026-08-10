@@ -307,11 +307,12 @@
     position: fixed; top: 0; right: 0; z-index: 45;
     width: min(360px, 90vw); height: 100dvh;
     background: var(--drawer); border-left: 1px solid var(--line);
-    box-shadow: -20px 0 46px -28px rgba(0,0,0,.5);
     display: flex; flex-direction: column;
     transform: translateX(100%); transition: transform .28s cubic-bezier(.2,.7,.3,1);
   }
-  .drawer.open { transform: none; }
+  /* shadow only while open — otherwise the offscreen drawer's shadow bleeds onto
+     the right edge of the page even when closed. */
+  .drawer.open { transform: none; box-shadow: -20px 0 46px -28px rgba(0,0,0,.5); }
   .drawer-hd {
     display: flex; align-items: baseline; justify-content: space-between; gap: 8px;
     padding: 16px clamp(16px, 4vw, 40px) 12px 18px; border-bottom: 1px solid var(--line-2);
@@ -380,10 +381,10 @@
   <div class="telemetry">
     <div class="chip"><div class="k">Works produced</div><div class="v" id="t-produced">0</div></div>
     <div class="chip"><div class="k">Coordinate</div><div class="v coord" id="t-coord">—</div></div>
+    <div class="chip system"><div class="k">Signed · all</div><div class="v" id="t-global">—</div></div>
     <button class="chip you" id="you-toggle" type="button" aria-expanded="false" aria-controls="drawer" title="Open your certificates">
       <div class="k">Signed · you</div><div class="v"><span id="t-signed">0</span><span class="cue" aria-hidden="true">▾</span></div>
     </button>
-    <div class="chip system"><div class="k">Signed · all</div><div class="v" id="t-global">—</div></div>
   </div>
 </header>
 
