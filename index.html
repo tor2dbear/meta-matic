@@ -444,15 +444,24 @@
   function genesFor(u, v) {
     const S = 6.0;
     const g = k => value2(u * S + k * 3.13, v * S + k * 5.71);
+    // Continuous "density", sampled from the same field so it glides smoothly
+    // along the walk (neighbours still morph). Low -> open, few-loop drawings;
+    // high -> dense tangles. It drives loop count, frequency spread, and how
+    // quickly higher harmonics fade, so the belt spans the whole spectrum.
+    // widen the field's ~mid-heavy distribution so the belt actually reaches the
+    // open and dense extremes, not just the middle.
+    const density = Math.min(1, Math.max(0, 0.5 + (g(300) - 0.5) * 1.8));
+    const spread = 1.8 + 4.0 * density;   // frequency range widens with density
+    const taper  = 0.50 + 0.50 * density; // higher harmonics fade out when open
     const harm = [];
     let wsum = 0;
     for (let i = 0; i < N; i++) {
-      const w = 0.30 + 0.70 * g(i + 1);
+      const w = (0.30 + 0.70 * g(i + 1)) * Math.pow(taper, i);
       wsum += w;
       harm.push({
         w,
-        fx: 0.5 + 5.5 * g(i + 21),
-        fy: 0.5 + 5.5 * g(i + 47),
+        fx: 0.5 + spread * g(i + 21),
+        fy: 0.5 + spread * g(i + 47),
         px: g(i + 71) * TAU,
         py: g(i + 97) * TAU
       });
@@ -461,7 +470,7 @@
     return {
       harm,
       rot: g(200) * TAU,
-      cycles: 5 + 7 * g(213),
+      cycles: 2.6 + 9.4 * density,        // few loops (open) -> many (dense)
       scale: 0.82 + 0.24 * g(229),
       lw: 0.8 + 0.9 * g(241)
     };
