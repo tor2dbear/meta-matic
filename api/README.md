@@ -58,9 +58,10 @@ const API = "https://api.tor2dbear.com/meta-matic";
 The Worker is mounted under a path on the shared `api.tor2dbear.com` gateway
 (route `api.tor2dbear.com/meta-matic/*` in `wrangler.toml`), so the host root
 stays free for other projects — each new project adds its own Worker with a
-`api.tor2dbear.com/<project>/*` route. The `meta-matic-api.<subdomain>.workers.dev`
-URL keeps working as a fallback (the Worker accepts both the prefixed and bare
-paths).
+`api.tor2dbear.com/<project>/*` route. Deploying with a route (and no
+`workers_dev` flag) disables the `*.workers.dev` URL, so the Worker is reachable
+only at `api.tor2dbear.com/meta-matic/*`. The handler still accepts bare paths,
+so setting `workers_dev = true` brings the workers.dev URL back as a fallback.
 
 ### One-time DNS for the gateway host
 

@@ -6,8 +6,10 @@ compatibility_date = "2026-08-01"
 # host root stays free for other projects (each adds its own /<project>/* route).
 # NOTE: unlike a custom_domain, a path route does NOT auto-create DNS. The
 # hostname "api.tor2dbear.com" needs a proxied placeholder record first — add a
-# proxied AAAA "api" -> 100:: in the tor2dbear.com zone (one-time). The
-# *.workers.dev URL keeps working as a fallback.
+# proxied AAAA "api" -> 100:: in the tor2dbear.com zone (one-time).
+# With a route (and no workers_dev flag) wrangler disables the *.workers.dev URL,
+# so the Worker is reachable only at api.tor2dbear.com/meta-matic/*. Set
+# workers_dev = true below if you want the workers.dev URL back as a fallback.
 routes = [
   { pattern = "api.tor2dbear.com/meta-matic/*", zone_name = "tor2dbear.com" }
 ]
