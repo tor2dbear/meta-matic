@@ -58,7 +58,7 @@
   }
 
   * { box-sizing: border-box; }
-  html, body { height: 100%; }
+  html { height: 100%; }
   body {
     margin: 0;
     background: var(--paper);
@@ -122,6 +122,18 @@
   button.chip.you:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
   .chip.you .cue { font-size: 12px; margin-left: 5px; color: var(--faint); vertical-align: 1px; }
   button.chip.you[aria-expanded="true"] .cue { color: var(--blue); }
+  /* On narrow screens the four stats wrap. With per-chip left dividers, the first
+     chip of the wrapped row shows a stray leading pipe. Lay them out as a clean
+     2-column grid instead and drop the divider on the left column. */
+  @media (max-width: 640px) {
+    .telemetry { display: grid; grid-template-columns: 1fr 1fr; width: 100%; row-gap: 8px; margin-top: 2px; }
+    .telemetry .chip { min-width: 0; padding: 2px 14px; }
+    .telemetry .chip:nth-child(odd) { padding-left: 0; border-left: none; }
+  }
+
+  /* Hero column: header + belt + console fill the first screen; the belt (stage)
+     flexes to take the slack. "The space" band then lives below the fold. */
+  .hero { display: flex; flex-direction: column; min-height: 100vh; min-height: 100dvh; }
 
   /* ---- Belt stage ---- */
   .stage { position: relative; flex: 1 1 auto; min-height: 300px; background: var(--paper); overflow: hidden; }
@@ -265,7 +277,7 @@
 
   /* ---- The space — unboxed, full-bleed band ---- */
   .spaceband {
-    position: relative; height: clamp(300px, 42vh, 440px);
+    position: relative; flex: 0 0 auto; height: clamp(300px, 42vh, 440px);
     background: var(--paper); border-top: 1px solid var(--line); overflow: hidden;
   }
   #map { position: absolute; inset: 0; display: block; width: 100%; height: 100%; }
@@ -287,6 +299,8 @@
     position: absolute; bottom: 12px; right: clamp(16px, 4vw, 40px);
     font-size: 10px; letter-spacing: 0.04em; color: var(--faint); pointer-events: none;
   }
+  /* on narrow screens the legend and the corner annotation would collide */
+  @media (max-width: 640px) { .sb-coord { display: none; } }
 
   /* ---- Certificates drawer — a raised plane, its own brightness ---- */
   .drawer {
@@ -356,6 +370,8 @@
 </style>
 </head>
 <body>
+<!-- Hero: the belt fills the first screen; "the space" band lives below the fold. -->
+<div class="hero">
 <header>
   <div class="wordmark">
     <span class="eyebrow">A drawing machine after Tinguely · 2026</span>
@@ -365,7 +381,7 @@
     <div class="chip"><div class="k">Works produced</div><div class="v" id="t-produced">0</div></div>
     <div class="chip"><div class="k">Coordinate</div><div class="v coord" id="t-coord">—</div></div>
     <button class="chip you" id="you-toggle" type="button" aria-expanded="false" aria-controls="drawer" title="Open your certificates">
-      <div class="k">Signed · you</div><div class="v" id="t-signed">0<span class="cue" aria-hidden="true">▾</span></div>
+      <div class="k">Signed · you</div><div class="v"><span id="t-signed">0</span><span class="cue" aria-hidden="true">▾</span></div>
     </button>
     <div class="chip system"><div class="k">Signed · all</div><div class="v" id="t-global">—</div></div>
   </div>
@@ -420,6 +436,7 @@
     </p>
   </div>
 </div>
+</div><!-- /.hero -->
 
 <!-- The space — unboxed: the machine's one path through the latent field, bleeding
      to the page edges (no frame · the space does not end). Labels float as hairline
@@ -437,7 +454,7 @@
 
 <!-- Certificates drawer — a raised plane (its own brightness), opened from the
      "Signed · you" handle in the header. -->
-<aside class="drawer" id="drawer" aria-label="Your certificates" aria-hidden="true">
+<aside class="drawer" id="drawer" aria-label="Your certificates" aria-hidden="true" inert>
   <div class="drawer-hd">
     <div><span class="drawer-t">Signed · you</span><span class="drawer-n" id="ledger-count">0 signed</span></div>
     <button class="drawer-x" id="drawer-x" type="button" aria-label="Close">✕</button>
@@ -910,10 +927,20 @@
      Non-modal: it overlays the right edge but never blocks the belt or controls. */
   const drawerEl = document.getElementById("drawer");
   const youToggle = document.getElementById("you-toggle");
+  const drawerX = document.getElementById("drawer-x");
   function setDrawer(open) {
     drawerEl.classList.toggle("open", open);
     drawerEl.setAttribute("aria-hidden", open ? "false" : "true");
     youToggle.setAttribute("aria-expanded", open ? "true" : "false");
+    // `inert` (not just aria-hidden) keeps the close/Save buttons out of the tab
+    // order while the drawer is offscreen, and moves focus sensibly on toggle.
+    if (open) {
+      drawerEl.removeAttribute("inert");
+      drawerX.focus({ preventScroll: true });
+    } else {
+      if (drawerEl.contains(document.activeElement)) youToggle.focus({ preventScroll: true });
+      drawerEl.setAttribute("inert", "");
+    }
   }
   youToggle.addEventListener("click", () => setDrawer(!drawerEl.classList.contains("open")));
   document.getElementById("drawer-x").addEventListener("click", () => setDrawer(false));
