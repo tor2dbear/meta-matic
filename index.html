@@ -630,14 +630,8 @@
         X += h.w * Math.cos(h.fx * t + h.px);
         Y += h.w * Math.sin(h.fy * t + h.py);
       }
-      let px = cx + (X * cr - Y * sr) * amp;
-      let py = cy + (X * sr + Y * cr) * amp;
-      if (nu > 0) { // future turbulence — displacement grows with distance into the future
-        const jit = size * 0.20 * nu * nu;
-        px += (value2(s * 0.05, ph + u * 13) - 0.5) * 2 * jit;
-        py += (value2(s * 0.05 + 61.7, ph + 9.1 + v * 13) - 0.5) * 2 * jit;
-      }
-      bx[s] = px; by[s] = py;
+      bx[s] = cx + (X * cr - Y * sr) * amp;
+      by[s] = cy + (X * sr + Y * cr) * amp;
     }
 
     // Per-point line weight from local pen speed — thin where the pen moves fast,
@@ -671,17 +665,21 @@
       for (let s = 0; s <= steps; s++) { ctx.moveTo(bx[s] + half[s], by[s]); ctx.arc(bx[s], by[s], half[s], 0, TAU); }
     }
     ctx.fillStyle = color;
-    ctx.globalAlpha = 0.92 * (1 - 0.5 * nu);   // future works fade as they diffuse
-    ctx.fill();
-    // diffusion dust — specks that haven't condensed onto the line yet
-    if (nu > 0.12) {
-      ctx.beginPath();
-      for (let s = 0; s <= steps; s += 8) {
-        const jx = (value2(s * 0.2, ph * 1.7 + u * 7) - 0.5) * size * 0.72 * nu;
-        const jy = (value2(s * 0.2 + 31, ph * 1.7 + v * 7) - 0.5) * size * 0.72 * nu;
-        ctx.moveTo(bx[s] + jx + 1.1, by[s] + jy); ctx.arc(bx[s] + jx, by[s] + jy, 1.1, 0, TAU);
+    // Diffusion, properly: the future is a FIELD OF NOISE the work denoises out of.
+    // The clean line fades in as it resolves; a flickering grain field fills the cell
+    // and fades out — like a denoising model's "% denoised" frames. This reads as
+    // clearly different from morph (which is a clean line settling into its shape).
+    ctx.globalAlpha = 0.92 * (1 - Math.min(1, nu * 1.2));
+    if (nu < 0.9) ctx.fill();
+    if (nu > 0.02) {
+      const halfS = size / 2, gN = Math.round(size * size * 0.014 * nu);
+      const seed = Math.floor(ph * 40);            // ~9 Hz flicker; static when frozen
+      const ux = (u * 997) | 0, vy = (v * 991) | 0;
+      ctx.globalAlpha = Math.min(0.6, 0.72 * nu);
+      for (let k = 0; k < gN; k++) {
+        const rx = h2(k * 2 + seed, ux), ry = h2(k * 2 + 1 + seed * 3, vy);
+        ctx.fillRect(cx - halfS + rx * size, cy - halfS + ry * size, 1.2, 1.2);
       }
-      ctx.globalAlpha = 0.30 * nu; ctx.fill();
     }
     ctx.globalAlpha = 1;
     ctx.restore();
@@ -813,7 +811,7 @@
         // committed neighbour to its final self as it nears now (0 at now), and is
         // off entirely in the diffusion zone (× (1 − nu)). No wobble, no boil.
         const morphAmt = Math.min(1, f / FC) * (1 - nu);
-        const off = (value1(serial * 1.7) - 0.5) * 2;            // fixed per-work direction (±1 serial)
+        const off = (value1(serial * 1.7) - 0.5);                // fixed per-work direction (±0.5 serial)
         ({ u, v } = coordFor(serial + morphAmt * off));
       }
 
