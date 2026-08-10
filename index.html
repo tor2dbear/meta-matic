@@ -800,13 +800,18 @@
     // So a work first denoises, THEN eases in toward its final self, settling (locked) at
     // LOCK, just before the signing point / red frame.
     const NOISE0 = 0.42, NOISE1 = 0.82, LOCK = 0.12, MORPH1 = 0.42;
+    // f is measured in SERIALS-ahead / SPAN, NOT screen fraction — so every plate sits
+    // at the same phase on every screen size. The pipeline occupies ~SPAN plates to the
+    // right of now; on a narrow phone the far (noisy) plates simply fall off the edge,
+    // so mobile misses the diffusion rather than cramming it into one plate.
+    const SPAN = 3;
     const ss = x => { x = x < 0 ? 0 : x > 1 ? 1 : x; return x * x * (3 - 2 * x); };
     bctx.font = "10px ui-monospace, Menlo, monospace";
     for (let i = -half; i <= half; i++) {
       const serial = base + i;
       const cx = centerScreen + (i * STRIDE) - (frac * STRIDE);
       if (cx < -STRIDE || cx > W + STRIDE) continue;
-      const f = (cx - centerScreen) / (W * 0.5); // 0 at now, ~1 at right edge; <0 = past
+      const f = (i - frac) / SPAN; // serials ahead of now / SPAN — 0 at now, <0 = past. Screen-independent.
       let u, v, nu = 0, redFade = 0;
       if (f <= 0) {                     // past + now — fixed, definite, locked
         ({ u, v } = coordFor(serial));
