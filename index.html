@@ -1,0 +1,950 @@
+<!doctype html>
+<html lang="sv">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="description" content="Méta-Matic ∞ — ett latent löpande band efter Jean Tinguely. En väggklocksdriven maskin som ritar oändligt många verk och aldrig något nytt.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%20100%20100%22%3E%3Ctext%20y%3D%22.9em%22%20font-size%3D%2290%22%3E%E2%99%BE%EF%B8%8F%3C%2Ftext%3E%3C%2Fsvg%3E">
+<title>Méta-Matic ∞</title>
+<style>
+  :root {
+    /* Light — "tekniskt papper", verkstad */
+    --paper:   #e4e2da;
+    --surface: #edece6;
+    --sunk:    #dcdad1;
+    --ink:     #1a1c20;
+    --muted:   #6b6f78;
+    --faint:   #9a9d9f;
+    --line:    #c6c4ba;
+    --line-2:  #d3d1c8;
+    --signal:  #d1402c;
+    --ink-rgb: 26, 28, 32;
+    color-scheme: light;
+  }
+  :root:not([data-theme="light"]) {
+    @media (prefers-color-scheme: dark) {
+      --paper:   #121317;
+      --surface: #1a1c21;
+      --sunk:    #0d0e11;
+      --ink:     #e7e4da;
+      --muted:   #83868f;
+      --faint:   #565962;
+      --line:    #2a2c32;
+      --line-2:  #23252a;
+      --signal:  #ef5a44;
+      --ink-rgb: 231, 228, 218;
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --paper:   #121317;
+    --surface: #1a1c21;
+    --sunk:    #0d0e11;
+    --ink:     #e7e4da;
+    --muted:   #83868f;
+    --faint:   #565962;
+    --line:    #2a2c32;
+    --line-2:  #23252a;
+    --signal:  #ef5a44;
+    --ink-rgb: 231, 228, 218;
+    color-scheme: dark;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, monospace;
+    font-size: 15px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+    display: flex;
+    flex-direction: column;
+    min-height: 100%;
+  }
+
+  .mono { font-variant-numeric: tabular-nums; }
+  .eyebrow {
+    font-size: 10.5px; letter-spacing: 0.18em; text-transform: uppercase;
+    color: var(--muted);
+  }
+
+  /* ---- HUD header ---- */
+  header {
+    display: flex; align-items: flex-end; justify-content: space-between;
+    gap: 20px; flex-wrap: wrap;
+    padding: 16px clamp(16px, 4vw, 40px) 14px;
+    border-bottom: 1px solid var(--line);
+    background: var(--surface);
+  }
+  .wordmark { display: flex; flex-direction: column; gap: 3px; }
+  .wordmark h1 {
+    margin: 0; font-size: clamp(22px, 4.4vw, 34px);
+    letter-spacing: -0.03em; font-weight: 800; line-height: 0.95;
+    text-transform: uppercase;
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  .wordmark h1 .inf { color: var(--signal); font-weight: 700; }
+
+  .telemetry { display: flex; gap: 10px; flex-wrap: wrap; }
+  .chip {
+    border: 1px solid var(--line); background: var(--paper);
+    padding: 6px 11px; min-width: 92px;
+  }
+  .chip .k { font-size: 9.5px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); }
+  .chip .v { font-size: 17px; font-variant-numeric: tabular-nums; letter-spacing: -0.01em; }
+  .chip.signal .v { color: var(--signal); }
+
+  /* ---- Belt stage ---- */
+  .stage { position: relative; flex: 1 1 auto; min-height: 300px; background: var(--paper); overflow: hidden; }
+  #belt { display: block; width: 100%; height: 100%; cursor: pointer; }
+
+  .sign-marker {
+    position: absolute; top: 0; bottom: 0; left: 50%; width: 0;
+    border-left: 1px dashed color-mix(in srgb, var(--signal) 55%, transparent);
+    pointer-events: none; z-index: 3;
+  }
+  .sign-marker::before {
+    content: "▼"; position: absolute; top: 6px; left: 50%; transform: translateX(-50%);
+    color: var(--signal); font-size: 12px;
+  }
+  .sign-marker::after {
+    content: "SIGNERINGSPUNKT"; position: absolute; bottom: 8px; left: 50%;
+    transform: translateX(-50%); white-space: nowrap;
+    font-size: 9px; letter-spacing: 0.16em; color: var(--muted);
+  }
+
+  .seam {
+    position: absolute; top: 14px; left: 50%; transform: translateX(-50%);
+    z-index: 4; display: flex; align-items: center; gap: 8px;
+    background: var(--signal); color: #fff;
+    padding: 5px 12px; font-size: 11px; letter-spacing: 0.06em;
+    border-radius: 2px; opacity: 0; transition: opacity .25s ease;
+    box-shadow: 0 4px 18px rgba(0,0,0,.22);
+  }
+  .seam.on { opacity: 1; }
+
+  .stage-hint {
+    position: absolute; left: 50%; top: 50%; transform: translate(-50%,-50%);
+    z-index: 4; text-align: center; color: var(--muted); pointer-events: none;
+    background: color-mix(in srgb, var(--surface) 88%, transparent);
+    border: 1px solid var(--line); padding: 14px 20px; max-width: 320px;
+    font-size: 12.5px; line-height: 1.55;
+  }
+  .stage-hint b { color: var(--ink); font-weight: 700; }
+  .stage-hint.hidden { display: none; }
+
+  .statuspill {
+    position: absolute; top: 12px; left: 14px; z-index: 4;
+    display: flex; align-items: center; gap: 7px;
+    font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase;
+    color: var(--muted); background: color-mix(in srgb, var(--surface) 82%, transparent);
+    border: 1px solid var(--line); padding: 4px 9px;
+  }
+  .statuspill .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--signal); }
+  .statuspill.away { color: var(--signal); }
+  .statuspill.away .dot { background: var(--signal); opacity: .5; }
+  @media not (prefers-reduced-motion: reduce) {
+    .statuspill:not(.away) .dot { animation: pulse 1.6s ease-in-out infinite; }
+  }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .35; } }
+
+  .rate-note { font-size: 10.5px; letter-spacing: 0.06em; color: var(--faint); align-self: center; }
+
+  /* ---- Focus / inspect ---- */
+  .focus {
+    position: absolute; inset: 0; z-index: 6;
+    display: flex; align-items: center; justify-content: center; padding: 20px;
+    background: color-mix(in srgb, var(--sunk) 76%, transparent);
+    -webkit-backdrop-filter: blur(2px); backdrop-filter: blur(2px);
+  }
+  .focus[hidden] { display: none; }
+  .focus-card {
+    display: flex; gap: 24px; align-items: center;
+    background: var(--surface); border: 1px solid var(--line);
+    padding: 24px; max-width: min(700px, 94vw);
+    box-shadow: 0 24px 70px rgba(0,0,0,.32);
+  }
+  .focus-card canvas {
+    width: min(300px, 44vw); height: min(300px, 44vw); flex: 0 0 auto;
+    border: 1px solid var(--line-2); background: var(--paper);
+  }
+  .focus-meta { min-width: 200px; display: flex; flex-direction: column; gap: 11px; }
+  .fm-serial { font-size: 21px; letter-spacing: -0.01em; }
+  .fm-row { display: flex; justify-content: space-between; align-items: baseline; gap: 14px; padding-bottom: 7px; border-bottom: 1px solid var(--line-2); }
+  .fm-row span { color: var(--muted); text-transform: uppercase; letter-spacing: 0.12em; font-size: 9.5px; }
+  .fm-row b { font-size: 12px; font-weight: 500; }
+  .fm-note { font-size: 11.5px; color: var(--muted); line-height: 1.6; margin: 3px 0 5px; }
+  .fm-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+  .fm-fine { font-size: 10px; letter-spacing: 0.04em; color: var(--faint); margin: 4px 0 0; }
+  @media (prefers-reduced-motion: no-preference) {
+    .focus-card { animation: focusin .26s cubic-bezier(.2,.7,.3,1); }
+  }
+  @keyframes focusin { from { transform: scale(.88); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+  @media (max-width: 560px) { .focus-card { flex-direction: column; gap: 16px; padding: 18px; } }
+
+  /* ---- Console ---- */
+  .console {
+    display: grid; grid-template-columns: 1fr auto; gap: clamp(16px, 3vw, 34px);
+    align-items: start;
+    padding: 16px clamp(16px, 4vw, 40px) 20px;
+    border-top: 1px solid var(--line); background: var(--surface);
+  }
+  .controls { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+  .btn-row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+
+  button {
+    font-family: inherit; font-size: 12px; letter-spacing: 0.06em;
+    text-transform: uppercase; cursor: pointer;
+    border: 1px solid var(--ink); background: var(--paper); color: var(--ink);
+    padding: 9px 15px; transition: background .12s, color .12s;
+  }
+  button:hover { background: var(--ink); color: var(--paper); }
+  button.primary { background: var(--signal); border-color: var(--signal); color: #fff; }
+  button.primary:hover { background: color-mix(in srgb, var(--signal) 82%, #000); }
+  button:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
+  button.ghost { border-color: var(--line); }
+
+  .speed { display: flex; align-items: center; gap: 10px; }
+  .speed label { font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted); }
+  input[type=range] {
+    -webkit-appearance: none; appearance: none; width: 150px; height: 2px;
+    background: var(--line); outline: none;
+  }
+  input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none; width: 14px; height: 14px; background: var(--signal);
+    border: none; cursor: pointer; border-radius: 0;
+  }
+  input[type=range]::-moz-range-thumb {
+    width: 14px; height: 14px; background: var(--signal); border: none; cursor: pointer; border-radius: 0;
+  }
+  input[type=range]:focus-visible { outline: 2px solid var(--signal); outline-offset: 4px; }
+
+  .walltext { max-width: 60ch; color: var(--muted); font-size: 12.5px; line-height: 1.65; }
+  .walltext b { color: var(--ink); font-weight: 700; }
+  .walltext .zero { color: var(--signal); font-weight: 700; }
+
+  /* right column: minimap + ledger */
+  .aside { display: flex; flex-direction: column; gap: 14px; width: min(300px, 42vw); }
+  .panel { border: 1px solid var(--line); background: var(--paper); }
+  .panel .hd {
+    display: flex; align-items: baseline; justify-content: space-between; gap: 8px;
+    padding: 8px 11px; border-bottom: 1px solid var(--line-2);
+  }
+  .panel .hd .t { font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; }
+  .panel .hd .n { font-size: 9.5px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--faint); }
+  #map { display: block; width: 100%; height: auto; }
+
+  .ledger { max-height: 236px; overflow-y: auto; }
+  .ledger .empty { padding: 14px 12px; color: var(--faint); font-size: 11.5px; line-height: 1.5; }
+  .cert { display: flex; gap: 12px; padding: 12px; border-bottom: 1px solid var(--line-2); }
+  .cert:last-child { border-bottom: none; }
+  .cert canvas { flex: 0 0 auto; width: 64px; height: 64px; border: 1px solid var(--line-2); background: var(--surface); }
+  .cert .meta { min-width: 0; flex: 1 1 auto; display: flex; flex-direction: column; gap: 3px; }
+  .cert .meta .row { font-size: 10.5px; display: flex; gap: 8px; align-items: baseline; }
+  .cert .meta .row .lab { flex: 0 0 46px; color: var(--faint); text-transform: uppercase; letter-spacing: 0.08em; font-size: 9px; }
+  .cert .meta .row .val { font-variant-numeric: tabular-nums; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .cert .tag {
+    display: inline-block; font-size: 8.5px; letter-spacing: 0.14em; text-transform: uppercase;
+    color: var(--signal); border: 1px solid color-mix(in srgb, var(--signal) 40%, var(--line));
+    padding: 1px 5px; margin-bottom: 3px; align-self: flex-start;
+  }
+  .cert.newest { background: color-mix(in srgb, var(--signal) 7%, var(--paper)); }
+  .cert .quip { font-size: 10px; color: var(--muted); line-height: 1.5; margin-top: 4px; padding-top: 5px; border-top: 1px dashed var(--line-2); }
+  .cert-save {
+    align-self: flex-start; margin-top: 5px; padding: 4px 9px;
+    font-size: 9.5px; letter-spacing: 0.08em; border-color: var(--line);
+  }
+  .cert-wrap { display: flex; flex-direction: column; }
+
+  footer.credit {
+    padding: 12px clamp(16px, 4vw, 40px) 22px; border-top: 1px solid var(--line);
+    color: var(--faint); font-size: 10.5px; letter-spacing: 0.04em;
+    display: flex; justify-content: space-between; gap: 14px; flex-wrap: wrap;
+    background: var(--surface);
+  }
+  footer.credit a { color: var(--muted); }
+
+  @media (max-width: 860px) {
+    .console { grid-template-columns: 1fr; }
+    .aside { width: 100%; flex-direction: row; flex-wrap: wrap; }
+    .aside .panel { flex: 1 1 240px; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .seam { transition: none; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <div class="wordmark">
+    <span class="eyebrow">En ritmaskin efter Tinguely · 2026</span>
+    <h1>Méta-Matic&nbsp;<span class="inf">∞</span></h1>
+  </div>
+  <div class="telemetry mono">
+    <div class="chip"><div class="k">Verk producerade</div><div class="v" id="t-produced">0</div></div>
+    <div class="chip signal"><div class="k">Original</div><div class="v" id="t-original">0</div></div>
+    <div class="chip"><div class="k">Koordinat</div><div class="v" id="t-coord" style="font-size:13px">—</div></div>
+    <div class="chip"><div class="k">Signerade</div><div class="v" id="t-signed">0</div></div>
+  </div>
+</header>
+
+<div class="stage" id="stage">
+  <canvas id="belt" aria-label="Ett löpande band av maskinritade verk som kontinuerligt morfar in i varandra"></canvas>
+  <div class="statuspill" id="status"><span class="dot"></span><span id="status-t">Live</span></div>
+  <div class="sign-marker" aria-hidden="true"></div>
+  <div class="seam" id="seam" role="status"></div>
+  <div class="stage-hint hidden" id="hint">
+    <b>Maskinen är igång.</b><br>
+    Din skärm visar en stillbild — tryck <b>Titta nu</b> för att hämta nuet.
+    Den har ritat i din frånvaro.
+  </div>
+  <div class="focus" id="focus" hidden>
+    <div class="focus-card" role="dialog" aria-modal="true" aria-label="Granska verk">
+      <canvas id="focus-canvas"></canvas>
+      <div class="focus-meta">
+        <div class="fm-serial mono" id="f-serial">№ —</div>
+        <div class="fm-row"><span>Koordinat</span><b class="mono" id="f-coord">—</b></div>
+        <div class="fm-row"><span>Avtryck</span><b class="mono" id="f-fp">—</b></div>
+        <p class="fm-note">Granska verket. Maskinen ritar vidare medan du tittar.
+          Det du signerar blir <em>ditt</em> — ritat av ingen.</p>
+        <div class="fm-actions">
+          <button class="primary" id="f-sign">Signera &amp; behåll</button>
+          <button id="f-release">Släpp · titta vidare</button>
+        </div>
+        <p class="fm-fine">Bara det du signerar kan sparas som bild.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="console">
+  <div class="controls">
+    <div class="btn-row">
+      <button class="primary" id="look">Titta bort</button>
+      <button id="grab">Granska &amp; signera</button>
+      <span class="rate-note mono">Takt: 1 verk / 4 s · igång sedan 2026</span>
+    </div>
+    <p class="walltext">
+      1959 byggde <b>Jean Tinguely</b> en maskin som ritade abstrakt konst på löpande band —
+      ett skämt om det spontana geniet. Den här maskinen ritar också. Men den <b>slumpar</b> inte fram
+      sina verk; den <b>hämtar</b> dem ur ett rum där varje möjlig teckning redan är en punkt.
+      Bandet stannar aldrig, upprepar sig aldrig exakt — och skapar ändå aldrig något nytt.
+      Räknaren räknar. Originalen förblir <span class="zero">noll</span>.
+    </p>
+  </div>
+
+  <div class="aside">
+    <div class="panel">
+      <div class="hd"><span class="t">Din väg genom rummet</span><span class="n">inga kanter · allt återkommer</span></div>
+      <canvas id="map" width="560" height="560"></canvas>
+    </div>
+    <div class="panel cert-wrap">
+      <div class="hd"><span class="t">Äkthetsbevis</span><span class="n" id="ledger-count">0 plockade</span></div>
+      <div class="ledger" id="ledger">
+        <div class="empty">Inget plockat än. Det du plockar blir <em>ditt</em> — signerat av dig, ritat av ingen.</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<footer class="credit">
+  <span>Kinetisk konst → latent rum · epicykler över ett kontinuerligt fält</span>
+  <span>Ett original förblir noll · <a href="https://en.wikipedia.org/wiki/M%C3%A9tamatic" target="_blank" rel="noopener">om Métamatics</a></span>
+</footer>
+
+<script>
+(() => {
+  "use strict";
+  const TAU = Math.PI * 2;
+
+  /* ---------- smooth deterministic noise ---------- */
+  function h1(i) { // integer -> [0,1). Math.imul keeps the 32-bit multiply exact
+    let n = Math.imul(i | 0, 374761393) + 2654435761;
+    n = Math.imul(n ^ (n >>> 13), 1274126177);
+    n = (n ^ (n >>> 16)) >>> 0;
+    return n / 4294967296;
+  }
+  const smooth = t => t * t * (3 - 2 * t);
+  function value1(x) {
+    const i = Math.floor(x), f = x - i;
+    return h1(i) * (1 - smooth(f)) + h1(i + 1) * smooth(f);
+  }
+  function h2(i, j) {
+    let n = Math.imul(i | 0, 374761393) + Math.imul(j | 0, 668265263) + 2246822519;
+    n = Math.imul(n ^ (n >>> 13), 1274126177);
+    n = (n ^ (n >>> 16)) >>> 0;
+    return n / 4294967296;
+  }
+  function value2(x, y) {
+    const i = Math.floor(x), j = Math.floor(y), fx = smooth(x - i), fy = smooth(y - j);
+    const a = h2(i, j), b = h2(i + 1, j), c = h2(i, j + 1), d = h2(i + 1, j + 1);
+    return (a * (1 - fx) + b * fx) * (1 - fy) + (c * (1 - fx) + d * fx) * fy;
+  }
+
+  /* ---------- the latent walk: serial -> (u,v), bounded, recurring ---------- */
+  const WALK = 0.135;
+  function coordFor(g) {
+    return {
+      u: value1(g * WALK + 40.5),
+      v: value1(g * WALK + 913.7)
+    };
+  }
+
+  /* ---------- genes: (u,v) -> harmonic drawing params (continuous) ---------- */
+  const N = 5;
+  function genesFor(u, v) {
+    const S = 6.0;
+    const g = k => value2(u * S + k * 3.13, v * S + k * 5.71);
+    const harm = [];
+    let wsum = 0;
+    for (let i = 0; i < N; i++) {
+      const w = 0.30 + 0.70 * g(i + 1);
+      wsum += w;
+      harm.push({
+        w,
+        fx: 0.5 + 5.5 * g(i + 21),
+        fy: 0.5 + 5.5 * g(i + 47),
+        px: g(i + 71) * TAU,
+        py: g(i + 97) * TAU
+      });
+    }
+    for (const hh of harm) hh.w /= wsum;
+    return {
+      harm,
+      rot: g(200) * TAU,
+      cycles: 5 + 7 * g(213),
+      scale: 0.82 + 0.24 * g(229),
+      lw: 0.8 + 0.9 * g(241)
+    };
+  }
+
+  /* ---------- draw one work ---------- */
+  function drawWork(ctx, cx, cy, size, u, v, color, lwMul) {
+    const G = genesFor(u, v);
+    const amp = size * 0.44 * G.scale;
+    const T = TAU * G.cycles;
+    const steps = 1050;
+    const cr = Math.cos(G.rot), sr = Math.sin(G.rot);
+    ctx.beginPath();
+    for (let s = 0; s <= steps; s++) {
+      const t = (s / steps) * T;
+      let X = 0, Y = 0;
+      for (const h of G.harm) {
+        X += h.w * Math.cos(h.fx * t + h.px);
+        Y += h.w * Math.sin(h.fy * t + h.py);
+      }
+      const rx = (X * cr - Y * sr) * amp;
+      const ry = (X * sr + Y * cr) * amp;
+      if (s === 0) ctx.moveTo(cx + rx, cy + ry);
+      else ctx.lineTo(cx + rx, cy + ry);
+    }
+    ctx.strokeStyle = color;
+    ctx.lineWidth = G.lw * (lwMul || 1);
+    ctx.lineJoin = "round";
+    ctx.lineCap = "round";
+    ctx.globalAlpha = 0.92;
+    ctx.stroke();
+    ctx.globalAlpha = 1;
+  }
+
+  /* ---------- fingerprint hash ---------- */
+  function fingerprint(g, u, v) {
+    const str = g + ":" + u.toFixed(6) + ":" + v.toFixed(6);
+    let hh = 0x811c9dc5;
+    for (let i = 0; i < str.length; i++) {
+      hh ^= str.charCodeAt(i);
+      hh = (hh * 0x01000193) >>> 0;
+    }
+    let out = "";
+    for (let k = 0; k < 3; k++) {
+      hh = (hh * 0x01000193 + 0x2545f491) >>> 0;
+      out += ("00000000" + hh.toString(16)).slice(-8);
+    }
+    return out.slice(0, 16);
+  }
+
+  /* ---------- the machine runs on wall-clock, not on the viewer ---------- */
+  const BIRTH_S = Date.UTC(2026, 0, 1, 0, 0, 0) / 1000; // maskinens födelse
+  const RATE_S  = 4;         // sekunder per verk — maskinens takt, ej justerbar
+  const STRIDE  = 236;       // px per plåt (plåt + mellanrum)
+  // serie som ren funktion av tiden -> samma för alla, alltid, utan server
+  function machineSerial() { return (Date.now() / 1000 - BIRTH_S) / RATE_S; }
+
+  const state = {
+    scroll: 0,               // px; sätts varje ram = viewSerial * STRIDE
+    looking: true,           // tittar du live, eller har du tittat bort?
+    frozenSerial: 0,         // vy-serie när du tittade bort
+    produced: 0,             // objektiv: verk sedan födelsen (härleds ur tiden)
+    signed: 0,
+    minted: [],
+    lastBase: -1,
+    centerSerial: 0
+  };
+  const seenBuf = []; // {g,u,v}
+  const SEAM_EPS = 0.020;
+  const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  /* ---------- canvas setup ---------- */
+  const stage = document.getElementById("stage");
+  const belt = document.getElementById("belt");
+  const bctx = belt.getContext("2d");
+  const map = document.getElementById("map");
+  const mctx = map.getContext("2d");
+  let W = 0, H = 0, dpr = 1;
+
+  function css(v) { return getComputedStyle(document.body).getPropertyValue(v).trim(); }
+
+  function resize() {
+    dpr = Math.min(window.devicePixelRatio || 1, 2);
+    W = stage.clientWidth; H = stage.clientHeight;
+    belt.width = Math.round(W * dpr); belt.height = Math.round(H * dpr);
+    bctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const ms = map.clientWidth * dpr;
+    map.width = Math.round(ms); map.height = Math.round(ms);
+  }
+  window.addEventListener("resize", resize);
+
+  /* ---------- render belt ---------- */
+  function renderBelt() {
+    const paper = css("--paper"), ink = css("--ink"), line = css("--line-2"), muted = css("--muted");
+    bctx.clearRect(0, 0, W, H);
+
+    const cy = H / 2;
+    const plate = Math.min(STRIDE - 40, H - 96);
+    const baseF = state.scroll / STRIDE;
+    const base = Math.floor(baseF);
+    const frac = baseF - base;
+
+    // conveyor rail
+    bctx.strokeStyle = line;
+    bctx.lineWidth = 1;
+    const railY = cy + plate / 2 + 26;
+    bctx.beginPath(); bctx.moveTo(0, railY); bctx.lineTo(W, railY); bctx.stroke();
+    const perfOff = (state.scroll % 26);
+    bctx.fillStyle = muted;
+    for (let x = -26; x < W + 26; x += 26) {
+      const px = x - perfOff;
+      bctx.globalAlpha = 0.5; bctx.fillRect(px, railY + 5, 8, 2); bctx.globalAlpha = 1;
+    }
+
+    // how many plates across
+    const half = Math.ceil((W / 2) / STRIDE) + 1;
+    const centerScreen = W / 2;
+    let bestD = Infinity, bestSerial = base;
+
+    bctx.font = "10px ui-monospace, Menlo, monospace";
+    for (let i = -half; i <= half; i++) {
+      const serial = base + i;
+      const cx = centerScreen + (i * STRIDE) - (frac * STRIDE);
+      if (cx < -STRIDE || cx > W + STRIDE) continue;
+      const { u, v } = coordFor(serial);
+
+      // plate frame
+      const half2 = plate / 2;
+      bctx.strokeStyle = line;
+      bctx.lineWidth = 1;
+      bctx.strokeRect(cx - half2, cy - half2, plate, plate);
+
+      // work
+      drawWork(bctx, cx, cy, plate, u, v, ink);
+
+      // serial label
+      bctx.fillStyle = muted;
+      bctx.textAlign = "center";
+      bctx.fillText("№ " + serial.toLocaleString("sv-SE"), cx, cy + half2 + 15);
+
+      const d = Math.abs(cx - centerScreen);
+      if (d < bestD) { bestD = d; bestSerial = serial; }
+    }
+    bctx.textAlign = "left";
+    state.centerSerial = bestSerial;
+
+    // highlight the plate at the signing point
+    const cxC = centerScreen + ((bestSerial - base) * STRIDE) - (frac * STRIDE);
+    const half2 = plate / 2;
+    bctx.strokeStyle = css("--signal");
+    bctx.lineWidth = 1.5;
+    bctx.strokeRect(cxC - half2 - 4, cy - half2 - 4, plate + 8, plate + 8);
+  }
+
+  /* ---------- render minimap ---------- */
+  function renderMap() {
+    const s = map.width;
+    mctx.clearRect(0, 0, s, s);
+    const pad = 14 * dpr;
+    const box = s - pad * 2;
+    const X = u => pad + u * box;
+    const Y = v => pad + v * box;
+
+    // frame ("rummet")
+    mctx.strokeStyle = css("--line");
+    mctx.lineWidth = 1;
+    mctx.strokeRect(pad, pad, box, box);
+
+    // trail of recently seen coords (density / revisiting)
+    mctx.fillStyle = css("--faint");
+    for (let k = 0; k < seenBuf.length; k += 2) {
+      const c = seenBuf[k];
+      mctx.globalAlpha = 0.35;
+      mctx.fillRect(X(c.u) - 1, Y(c.v) - 1, 2, 2);
+    }
+    mctx.globalAlpha = 1;
+
+    // the path around the current window
+    const base = Math.floor(state.scroll / STRIDE);
+    mctx.strokeStyle = css("--muted");
+    mctx.lineWidth = 1.2 * dpr;
+    mctx.beginPath();
+    for (let g = base - 110; g <= base + 110; g++) {
+      const c = coordFor(g);
+      const px = X(c.u), py = Y(c.v);
+      if (g === base - 110) mctx.moveTo(px, py); else mctx.lineTo(px, py);
+    }
+    mctx.stroke();
+
+    // minted pins
+    for (const m of state.minted) {
+      mctx.strokeStyle = css("--signal");
+      mctx.lineWidth = 1.2 * dpr;
+      const px = X(m.u), py = Y(m.v), r = 4 * dpr;
+      mctx.beginPath(); mctx.moveTo(px - r, py); mctx.lineTo(px + r, py);
+      mctx.moveTo(px, py - r); mctx.lineTo(px, py + r); mctx.stroke();
+    }
+
+    // current position
+    const cc = coordFor(state.centerSerial);
+    mctx.fillStyle = css("--signal");
+    mctx.beginPath(); mctx.arc(X(cc.u), Y(cc.v), 3.4 * dpr, 0, TAU); mctx.fill();
+  }
+
+  /* ---------- seam (recurrence) detection ---------- */
+  const seamEl = document.getElementById("seam");
+  let seamTimer = 0;
+  function checkSeam(serial) {
+    const c = coordFor(serial);
+    let best = null, bestD = SEAM_EPS;
+    for (const p of seenBuf) {
+      if (serial - p.g < 80) continue;
+      const dd = Math.hypot(p.u - c.u, p.v - c.v);
+      if (dd < bestD) { bestD = dd; best = p; }
+    }
+    if (best) {
+      seamEl.innerHTML = "≈ NÄSTAN IDENTISK · sedd för " + (serial - best.g).toLocaleString("sv-SE") + " verk sedan";
+      seamEl.classList.add("on");
+      seamTimer = 2.2;
+    }
+  }
+
+  /* ---------- new-plate bookkeeping (seam + trail; produced is time-derived) ---------- */
+  function advanceBookkeeping() {
+    const base = Math.floor(state.scroll / STRIDE);
+    if (state.lastBase < 0) { state.lastBase = base; return; }
+    if (base === state.lastBase) return;
+    const jump = base - state.lastBase;
+    // large jump (returning after looking away): reseed a window, don't loop thousands
+    if (jump > 400 || jump < -400) {
+      seenBuf.length = 0;
+      for (let g = base - 200; g < base; g++) {
+        const c = coordFor(g);
+        seenBuf.push({ g, u: c.u, v: c.v });
+      }
+      state.lastBase = base;
+      checkSeam(base);
+      return;
+    }
+    if (jump > 0) {
+      for (let g = state.lastBase + 1; g <= base; g++) {
+        const c = coordFor(g);
+        seenBuf.push({ g, u: c.u, v: c.v });
+        if (seenBuf.length > 1600) seenBuf.shift();
+      }
+      checkSeam(state.centerSerial);
+    }
+    state.lastBase = base;
+  }
+
+  /* ---------- telemetry DOM ---------- */
+  const el = {
+    produced: document.getElementById("t-produced"),
+    signed: document.getElementById("t-signed"),
+    coord: document.getElementById("t-coord"),
+    ledger: document.getElementById("ledger"),
+    ledgerCount: document.getElementById("ledger-count")
+  };
+  function updateHUD() {
+    // produced is objective: verk sedan födelsen, härlett ur tiden — tickar även
+    // medan du tittar bort (maskinen bryr sig inte om att du tittar).
+    state.produced = Math.floor(machineSerial());
+    el.produced.textContent = state.produced.toLocaleString("sv-SE");
+    el.signed.textContent = state.signed.toLocaleString("sv-SE");
+    const c = coordFor(state.centerSerial);
+    el.coord.textContent = c.u.toFixed(3) + " , " + c.v.toFixed(3);
+  }
+
+  /* ---------- grab / certify ---------- */
+  const QUIPS = [
+    "Signerad av dig. Ritad av ingen. Hämtad ur ett rum som bara innehåller det som redan fanns.",
+    "Unikt serienummer. Icke-unikt verk. Grannpunkten är nästan omöjlig att skilja från denna.",
+    "Du valde en koordinat. Det är hela din insats. Resten fanns före dig.",
+    "Ett äkthetsbevis för något som aldrig var nytt. Det är själva poängen.",
+    "Din signatur gör den till din. Ingenting gör den till ett original."
+  ];
+  // Persistens: sparas i DENNA webbläsare (localStorage) — överlever omladdning
+  // och återbesök, men delas inte mellan webbläsare/enheter. En äkta global
+  // tally skulle kräva en extern server, vilket den fristående filen inte har.
+  const LS_KEY = "metamatic-inf-v1";
+  function persist() {
+    try { localStorage.setItem(LS_KEY, JSON.stringify({ signed: state.signed, minted: state.minted })); }
+    catch (e) { /* privat läge e.d. — fortsätt utan att spara */ }
+  }
+  function restore() {
+    try {
+      const d = JSON.parse(localStorage.getItem(LS_KEY) || "null");
+      if (d && typeof d.signed === "number") state.signed = d.signed;
+      if (d && Array.isArray(d.minted)) state.minted = d.minted.slice(0, 24);
+    } catch (e) { /* trasig data — ignorera */ }
+  }
+
+  function mint(serial) {
+    const c = coordFor(serial);
+    state.minted.unshift({ serial, u: c.u, v: c.v, fp: fingerprint(serial, c.u, c.v) });
+    if (state.minted.length > 24) state.minted.pop();
+    state.signed++;
+    persist();
+    renderLedger();
+    updateHUD();
+    seamEl.innerHTML = "✓ SIGNERAD · № " + serial.toLocaleString("sv-SE") + " är nu din";
+    seamEl.classList.add("on");
+    seamTimer = 2.2;
+  }
+  function renderLedger() {
+    el.ledgerCount.textContent = state.signed.toLocaleString("sv-SE") + " signerade · denna webbläsare";
+    if (!state.minted.length) {
+      el.ledger.innerHTML = '<div class="empty">Inget signerat än. Klicka på ett verk för att granska det stort — ' +
+        'det du signerar blir <em>ditt</em>, ritat av ingen. Sparas i den här webbläsaren.</div>';
+      return;
+    }
+    el.ledger.innerHTML = "";
+    state.minted.forEach((m, idx) => {
+      const wrap = document.createElement("div");
+      wrap.className = "cert" + (idx === 0 ? " newest" : "");
+      const cv = document.createElement("canvas");
+      cv.width = 128; cv.height = 128;
+      drawWork(cv.getContext("2d"), 64, 64, 128, m.u, m.v, css("--ink"));
+      const meta = document.createElement("div");
+      meta.className = "meta";
+      meta.innerHTML =
+        (idx === 0 ? '<span class="tag">Senast</span>' : '') +
+        '<div class="row"><span class="lab">Serie</span><span class="val">№ ' + m.serial.toLocaleString("sv-SE") + '</span></div>' +
+        '<div class="row"><span class="lab">Koord</span><span class="val">' + m.u.toFixed(4) + ' , ' + m.v.toFixed(4) + '</span></div>' +
+        '<div class="row"><span class="lab">Avtryck</span><span class="val">' + m.fp + '</span></div>' +
+        (idx === 0 ? '<div class="quip">' + QUIPS[m.serial % QUIPS.length] + '</div>' : '') +
+        '<button class="cert-save" data-serial="' + m.serial + '">↓ Spara bild</button>';
+      wrap.appendChild(cv); wrap.appendChild(meta);
+      el.ledger.appendChild(wrap);
+    });
+  }
+  // Bara signerade verk (de i liggaren) kan sparas — signeringen är handlingen.
+  el.ledger.addEventListener("click", e => {
+    const btn = e.target.closest(".cert-save");
+    if (btn) saveImage(+btn.dataset.serial);
+  });
+
+  /* ---------- export a signed work as a shareable PNG ---------- */
+  function exportCanvas(serial) {
+    const S = 1400, pad = 150;
+    const cv = document.createElement("canvas"); cv.width = S; cv.height = S;
+    const x = cv.getContext("2d");
+    const paper = css("--paper"), ink = css("--ink"), muted = css("--muted"), faint = css("--faint");
+    x.fillStyle = paper; x.fillRect(0, 0, S, S);
+    const c = coordFor(serial);
+    drawWork(x, S / 2, S / 2 + 10, S - pad * 2, c.u, c.v, ink, 3.2);
+    x.fillStyle = muted; x.textAlign = "left";
+    x.font = "700 30px ui-monospace, Menlo, monospace";
+    x.fillText("MÉTA-MATIC ∞", pad, 84);
+    x.fillStyle = faint; x.textAlign = "right";
+    x.font = "22px ui-monospace, Menlo, monospace";
+    x.fillText("Original 0", S - pad, 84);
+    x.fillStyle = muted; x.textAlign = "left";
+    x.font = "22px ui-monospace, Menlo, monospace";
+    x.fillText("№ " + serial.toLocaleString("sv-SE"), pad, S - pad + 44);
+    x.textAlign = "right";
+    x.fillStyle = faint;
+    x.fillText(c.u.toFixed(4) + " , " + c.v.toFixed(4) + "  ·  " + fingerprint(serial, c.u, c.v), S - pad, S - pad + 44);
+    return cv;
+  }
+  function anchorDownload(blob, filename) {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = filename; document.body.appendChild(a); a.click();
+    a.remove(); setTimeout(() => URL.revokeObjectURL(url), 4000);
+  }
+  function saveImage(serial) {
+    const filename = "meta-matic-" + serial + ".png";
+    exportCanvas(serial).toBlob(async blob => {
+      if (!blob) return;
+      const dl = window.claude && window.claude.downloads;
+      if (dl && typeof dl.save === "function") {
+        try { await dl.save({ filename, data: blob }); }
+        catch (err) {
+          if (err && err.code === "declined") return;          // viewer said no
+          try { anchorDownload(blob, filename); } catch (e2) {} // best-effort fallback
+        }
+      } else {
+        anchorDownload(blob, filename); // standalone / outside the Artifact sandbox
+      }
+    }, "image/png");
+  }
+
+  /* ---------- focus / inspect (click -> freeze + enlarge -> deliberate sign) ---------- */
+  const focusEl = document.getElementById("focus");
+  const focusCanvas = document.getElementById("focus-canvas");
+  const fctx = focusCanvas.getContext("2d");
+  const fSerial = document.getElementById("f-serial");
+  const fCoord = document.getElementById("f-coord");
+  const fFp = document.getElementById("f-fp");
+  let focusSerial = null;
+
+  function serialAtX(clientX) {
+    const rect = stage.getBoundingClientRect();
+    const baseF = state.scroll / STRIDE;
+    const base = Math.floor(baseF), frac = baseF - base;
+    const i = Math.round(((clientX - rect.left) - W / 2 + frac * STRIDE) / STRIDE);
+    return base + i;
+  }
+  function openFocus(serial) {
+    focusSerial = serial;
+    if (reduced) state.frozenSerial = machineSerial();
+    else if (state.looking) setLooking(false);
+    const c = coordFor(serial);
+    fSerial.textContent = "№ " + serial.toLocaleString("sv-SE");
+    fCoord.textContent = c.u.toFixed(4) + " , " + c.v.toFixed(4);
+    fFp.textContent = fingerprint(serial, c.u, c.v);
+    const cssSize = Math.max(180, Math.min(300, Math.round(stage.clientWidth * 0.44)));
+    const d = Math.min(window.devicePixelRatio || 1, 2);
+    focusCanvas.style.width = cssSize + "px"; focusCanvas.style.height = cssSize + "px";
+    focusCanvas.width = Math.round(cssSize * d); focusCanvas.height = Math.round(cssSize * d);
+    fctx.setTransform(d, 0, 0, d, 0, 0);
+    fctx.clearRect(0, 0, cssSize, cssSize);
+    drawWork(fctx, cssSize / 2, cssSize / 2, cssSize, c.u, c.v, css("--ink"));
+    focusEl.hidden = false;
+    document.getElementById("f-sign").focus();
+  }
+  function closeFocus(silent) {
+    focusEl.hidden = true;
+    if (reduced) {
+      state.frozenSerial = machineSerial();
+      state.scroll = state.frozenSerial * STRIDE;
+      renderBelt(); renderMap(); updateHUD();
+    } else {
+      setLooking(true, silent);
+    }
+  }
+  document.getElementById("f-sign").addEventListener("click", () => {
+    if (focusSerial != null) mint(focusSerial);
+    closeFocus(true); // keep the "signerad" confirmation, skip the missed flash
+  });
+  document.getElementById("f-release").addEventListener("click", () => closeFocus(false));
+  focusEl.addEventListener("click", e => { if (e.target === focusEl) closeFocus(false); });
+
+  /* ---------- controls ---------- */
+  const hint = document.getElementById("hint");
+  const lookBtn = document.getElementById("look");
+  const statusEl = document.getElementById("status");
+  const statusT = document.getElementById("status-t");
+
+  function setStatus(live) {
+    statusEl.classList.toggle("away", !live);
+    statusT.textContent = live ? "Live" : "Tittar bort";
+  }
+  function flashMissed(missed) {
+    if (missed <= 0) return;
+    seamEl.innerHTML = "⌛ DU TITTADE BORT · " + missed.toLocaleString("sv-SE") + " verk passerade utan dig";
+    seamEl.classList.add("on"); seamTimer = 2.8;
+  }
+
+  // You can look away, but you cannot stop the machine. Resume = jump to now.
+  function setLooking(live, silent) {
+    if (live === state.looking) return;
+    if (live) { if (!silent) flashMissed(Math.floor(machineSerial()) - Math.floor(state.frozenSerial)); }
+    else state.frozenSerial = machineSerial();
+    state.looking = live;
+    lookBtn.textContent = live ? "Titta bort" : "Titta nu";
+    setStatus(live);
+  }
+  // Reduced-motion: no autoplay. The button fetches a fresh still of "now".
+  function refreshNow() {
+    const prev = Math.floor(state.frozenSerial);
+    state.frozenSerial = machineSerial();
+    state.scroll = state.frozenSerial * STRIDE;
+    advanceBookkeeping();
+    renderBelt(); renderMap(); updateHUD();
+    flashMissed(Math.floor(state.frozenSerial) - prev);
+  }
+
+  document.getElementById("grab").addEventListener("click", () => openFocus(state.centerSerial));
+  belt.addEventListener("click", e => openFocus(serialAtX(e.clientX)));
+  if (reduced) {
+    lookBtn.textContent = "Titta nu";
+    lookBtn.addEventListener("click", refreshNow);
+  } else {
+    lookBtn.addEventListener("click", () => setLooking(!state.looking));
+  }
+  window.addEventListener("keydown", e => {
+    if (e.key === "Escape" && !focusEl.hidden) { closeFocus(false); return; }
+    if (e.code === "Space") { e.preventDefault(); reduced ? refreshNow() : setLooking(!state.looking); }
+    else if (e.key === "s" || e.key === "S") { if (focusEl.hidden) openFocus(state.centerSerial); }
+  });
+
+  /* ---------- loop (motion only) ---------- */
+  let lastT = performance.now();
+  function frame() {
+    const now = performance.now();
+    const dt = Math.min(0.05, (now - lastT) / 1000); lastT = now;
+    const viewSerial = state.looking ? machineSerial() : state.frozenSerial;
+    state.scroll = viewSerial * STRIDE;
+    if (state.looking) advanceBookkeeping();
+    if (seamTimer > 0) { seamTimer -= dt; if (seamTimer <= 0) seamEl.classList.remove("on"); }
+    renderBelt();
+    renderMap();
+    updateHUD();
+    requestAnimationFrame(frame);
+  }
+
+  /* ---------- boot ---------- */
+  function seedHistory(base) {
+    seenBuf.length = 0;
+    for (let g = base - 200; g < base; g++) {
+      const c = coordFor(g);
+      seenBuf.push({ g, u: c.u, v: c.v });
+    }
+    state.lastBase = base;
+  }
+  resize();
+  restore();
+  renderLedger();
+  const start = machineSerial();
+  state.frozenSerial = start;
+  state.scroll = start * STRIDE;
+  state.centerSerial = Math.round(start);
+  seedHistory(Math.floor(start));
+
+  if (reduced) {
+    state.looking = false;
+    statusEl.classList.add("away");
+    statusT.textContent = "Stillbild";
+    hint.classList.remove("hidden");
+    renderBelt(); renderMap(); updateHUD();
+  } else {
+    state.looking = true;
+    setStatus(true);
+    requestAnimationFrame(frame);
+  }
+})();
+</script>
+</body>
+</html>
