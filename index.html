@@ -898,20 +898,26 @@
     }
     mctx.globalAlpha = 1;
 
-    // the shared path — the machine's one trajectory, same for everyone. Faded to
-    // nothing at both ends: an endless line passing through the window, no start,
-    // no end (no edges · everything recurs). Kept low-contrast so it reads as
-    // ground, not figure — the belt above stays the hero.
-    const base = Math.floor(state.scroll / STRIDE);
-    const WMAP = 110;
+    // the shared path — the machine's one trajectory, same for everyone. The two
+    // arms are asymmetric on purpose: the PAST reaches far back (a long, settled
+    // line of what has been drawn), the FUTURE is only a short, steeply-fading stub
+    // — beyond commit the coordinate is unknown, so the map cannot honestly draw
+    // more than a glimpse ahead. Kept low-contrast so it reads as ground, not
+    // figure — the belt above stays the hero.
+    const headF = state.scroll / STRIDE;         // continuous live position
+    const PASTMAP = 110, FUTMAP = 14;
     mctx.strokeStyle = muted;
     mctx.lineWidth = 1.2 * dpr;
     let prev = null;
-    for (let o = -WMAP; o <= WMAP; o++) {
-      const c = coordFor(base + o);
+    for (let s = Math.floor(headF) - PASTMAP; s <= Math.ceil(headF) + FUTMAP; s++) {
+      const c = coordFor(s);
       const px = X(c.u), py = Y(c.v);
       if (prev) {
-        mctx.globalAlpha = 0.85 * Math.pow(1 - Math.abs(o) / WMAP, 0.9);
+        const off = (s - 0.5) - headF;           // segment midpoint vs now (<0 past, >0 future)
+        const a = off <= 0
+          ? Math.pow(Math.max(0, 1 + off / PASTMAP), 0.9)
+          : Math.pow(Math.max(0, 1 - off / FUTMAP), 1.7);   // short + steep ahead
+        mctx.globalAlpha = 0.85 * a;
         mctx.beginPath(); mctx.moveTo(prev[0], prev[1]); mctx.lineTo(px, py); mctx.stroke();
       }
       prev = [px, py];
@@ -955,7 +961,10 @@
     // not "yours"); when you look away it shows the point you froze on. A full-span
     // crosshair locates it in the lattice and its coordinate is read out beside it —
     // the same value the header shows — tying the map to the readout. Both live.
-    const cc = coordFor(state.centerSerial);
+    // Sampled at the CONTINUOUS head (scroll/STRIDE), so the dot glides along the
+    // path instead of snapping between integer works; signing still snaps to a whole
+    // serial via centerSerial.
+    const cc = coordFor(headF);
     const nx = X(cc.u), ny = Y(cc.v);
     mctx.strokeStyle = signal; mctx.globalAlpha = 0.36; mctx.lineWidth = 1 * dpr;
     mctx.beginPath(); mctx.moveTo(0, ny); mctx.lineTo(W, ny); mctx.stroke();
@@ -1101,7 +1110,7 @@
     state.produced = Math.floor(machineSerial());
     el.produced.textContent = state.produced.toLocaleString("en-US");
     el.signed.textContent = state.signed.toLocaleString("en-US");
-    const c = coordFor(state.centerSerial);
+    const c = coordFor(state.scroll / STRIDE);   // continuous head — glides, matches the map crosshair
     el.coord.textContent = c.u.toFixed(3) + ", " + c.v.toFixed(3);
   }
 
@@ -1425,7 +1434,11 @@
   }
 
   document.getElementById("grab").addEventListener("click", () => openFocus(state.centerSerial));
-  belt.addEventListener("click", e => openFocus(serialAtX(e.clientX)));
+  belt.addEventListener("click", e => {
+    const s = serialAtX(e.clientX);
+    if (s > state.centerSerial) return;   // future works are unresolved (noise/morph) — not signable
+    openFocus(s);
+  });
   if (reduced) {
     lookBtn.textContent = "Look now";
     lookBtn.addEventListener("click", refreshNow);
