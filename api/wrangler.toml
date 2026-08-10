@@ -3,8 +3,9 @@ main = "src/index.js"
 compatibility_date = "2026-08-01"
 
 # KV namespace for the tally counters.
-# 1) Create it:   npx wrangler kv namespace create TALLY
-# 2) Paste the printed id below (replace REPLACE_WITH_KV_ID).
+# This id points at the "meta-matic-api-TALLY" namespace already created in the
+# account. To recreate from scratch: npx wrangler kv namespace create TALLY
+# then paste the printed id below.
 [[kv_namespaces]]
 binding = "TALLY"
-id = "REPLACE_WITH_KV_ID"
+id = "95de505f368c4be5818a78d0d9ff0d08"
