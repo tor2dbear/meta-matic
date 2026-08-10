@@ -594,8 +594,12 @@
 
   function genesFor(u, v, gen) { return (gen || GEN) === 1 ? genesV1(u, v) : genesV2(u, v); }
 
-  /* ---------- draw one work ---------- */
-  function drawWork(ctx, cx, cy, size, u, v, color, lwMul, gen) {
+  /* ---------- draw one work ----------
+     nu (0..1) = diffusion level: the belt renders future works (right of "now")
+     as unresolved — jittered + dusted + faded — collapsing to nu=0 (definite) at
+     the signing point. Omitted for inspect/ledger/export, which are always resolved. */
+  function drawWork(ctx, cx, cy, size, u, v, color, lwMul, gen, nu, ph) {
+    nu = nu || 0; ph = ph || 0;
     const G = genesFor(u, v, gen); // gen omitted -> current generator (live works)
     const amp = size * 0.44 * G.scale;
     const T = TAU * G.cycles;
@@ -608,7 +612,7 @@
     // (larger, rendered once) scale up for crispness.
     const steps = size >= 600 ? Math.round(size * G.cycles * 0.6)
                 : size >= 240 ? 900
-                : 560;
+                : (nu > 0.35 ? 360 : 560);   // heavily-diffused future plates are blurry — fewer steps
     const cr = Math.cos(G.rot), sr = Math.sin(G.rot);
     ctx.save();
     // Clip each work to its own cell. A work's radius can reach ~0.62·size while
@@ -626,8 +630,14 @@
         X += h.w * Math.cos(h.fx * t + h.px);
         Y += h.w * Math.sin(h.fy * t + h.py);
       }
-      bx[s] = cx + (X * cr - Y * sr) * amp;
-      by[s] = cy + (X * sr + Y * cr) * amp;
+      let px = cx + (X * cr - Y * sr) * amp;
+      let py = cy + (X * sr + Y * cr) * amp;
+      if (nu > 0) { // future turbulence — displacement grows with distance into the future
+        const jit = size * 0.20 * nu * nu;
+        px += (value2(s * 0.05, ph + u * 13) - 0.5) * 2 * jit;
+        py += (value2(s * 0.05 + 61.7, ph + 9.1 + v * 13) - 0.5) * 2 * jit;
+      }
+      bx[s] = px; by[s] = py;
     }
 
     // Per-point line weight from local pen speed — thin where the pen moves fast,
@@ -661,8 +671,19 @@
       for (let s = 0; s <= steps; s++) { ctx.moveTo(bx[s] + half[s], by[s]); ctx.arc(bx[s], by[s], half[s], 0, TAU); }
     }
     ctx.fillStyle = color;
-    ctx.globalAlpha = 0.92;
+    ctx.globalAlpha = 0.92 * (1 - 0.5 * nu);   // future works fade as they diffuse
     ctx.fill();
+    // diffusion dust — specks that haven't condensed onto the line yet
+    if (nu > 0.12) {
+      ctx.beginPath();
+      for (let s = 0; s <= steps; s += 8) {
+        const jx = (value2(s * 0.2, ph * 1.7 + u * 7) - 0.5) * size * 0.72 * nu;
+        const jy = (value2(s * 0.2 + 31, ph * 1.7 + v * 7) - 0.5) * size * 0.72 * nu;
+        ctx.moveTo(bx[s] + jx + 1.1, by[s] + jy); ctx.arc(bx[s] + jx, by[s] + jy, 1.1, 0, TAU);
+      }
+      ctx.globalAlpha = 0.30 * nu; ctx.fill();
+    }
+    ctx.globalAlpha = 1;
     ctx.restore();
   }
 
@@ -767,12 +788,18 @@
     const centerScreen = W / 2;
     let bestD = Infinity, bestSerial = base;
 
+    // diffusion phase — future works to the right are unresolved and collapse at
+    // "now" (centre). Turbulence animates with wall-clock time; static under
+    // reduced-motion (still displaced, just not moving).
+    const ph = (state.looking && !reduced) ? performance.now() * 0.00035 : (state.frozenSerial || 0);
     bctx.font = "10px ui-monospace, Menlo, monospace";
     for (let i = -half; i <= half; i++) {
       const serial = base + i;
       const cx = centerScreen + (i * STRIDE) - (frac * STRIDE);
       if (cx < -STRIDE || cx > W + STRIDE) continue;
       const { u, v } = coordFor(serial);
+      // 0 at/left of the signing point (past · now), ramping to 1 into the future
+      const nu = Math.max(0, Math.min(1, (cx - centerScreen) / (W * 0.36)));
 
       // plate frame
       const half2 = plate / 2;
@@ -780,13 +807,15 @@
       bctx.lineWidth = 1;
       bctx.strokeRect(cx - half2, cy - half2, plate, plate);
 
-      // work
-      drawWork(bctx, cx, cy, plate, u, v, ink);
+      // work — future plates render as diffusion, collapsing to definite at now
+      drawWork(bctx, cx, cy, plate, u, v, ink, undefined, undefined, nu, ph);
 
-      // serial label
+      // serial label — a future work has no settled number yet, so it fades in
       bctx.fillStyle = muted;
       bctx.textAlign = "center";
+      bctx.globalAlpha = Math.max(0, 1 - 1.15 * nu);
       bctx.fillText("№ " + serial.toLocaleString("en-US"), cx, cy + half2 + 15);
+      bctx.globalAlpha = 1;
 
       const d = Math.abs(cx - centerScreen);
       if (d < bestD) { bestD = d; bestSerial = serial; }
