@@ -133,10 +133,12 @@
 
   /* Hero column: header + belt + console fill the first screen; the belt (stage)
      flexes to take the slack. "The space" band then lives below the fold. */
-  .hero { display: flex; flex-direction: column; min-height: 100vh; min-height: 100dvh; }
+  .hero { display: flex; flex-direction: column; }
 
   /* ---- Belt stage ---- */
-  .stage { position: relative; flex: 1 1 auto; min-height: 300px; background: var(--paper); overflow: hidden; }
+  /* The belt is a horizontal strip — give it a bounded height so it doesn't swim in
+     empty space on tall screens (it used to fill the whole viewport). */
+  .stage { position: relative; flex: 0 0 auto; height: clamp(320px, 46vh, 480px); background: var(--paper); overflow: hidden; }
   #belt { display: block; width: 100%; height: 100%; cursor: pointer; }
 
   .sign-marker {
@@ -317,6 +319,7 @@
     background: var(--drawer); border-left: 1px solid var(--line);
     display: flex; flex-direction: column;
     transform: translateX(100%); transition: transform .28s cubic-bezier(.2,.7,.3,1);
+    touch-action: pan-y;   /* vertical scroll of the ledger; horizontal drag = dismiss */
   }
   /* shadow only while open — otherwise the offscreen drawer's shadow bleeds onto
      the right edge of the page even when closed. */
@@ -600,7 +603,12 @@
     // original 1050 steps, so the per-frame belt cost is unchanged. Only large
     // static renders like the 1400px PNG export scale up (with size × loops) to
     // stay smooth instead of faceted.
-    const steps = size >= 600 ? Math.round(size * G.cycles * 0.6) : 1050;
+    // Ribbon fill anti-aliases the edges, so fewer steps are needed than the old
+    // stroke. The belt (small, animated) uses the fewest for 60fps; inspect/export
+    // (larger, rendered once) scale up for crispness.
+    const steps = size >= 600 ? Math.round(size * G.cycles * 0.6)
+                : size >= 240 ? 900
+                : 560;
     const cr = Math.cos(G.rot), sr = Math.sin(G.rot);
     ctx.save();
     // Clip each work to its own cell. A work's radius can reach ~0.62·size while
@@ -609,7 +617,8 @@
     ctx.beginPath();
     ctx.rect(cx - size / 2, cy - size / 2, size, size);
     ctx.clip();
-    ctx.beginPath();
+    // trace the epicycle into a point buffer
+    const bx = new Float64Array(steps + 1), by = new Float64Array(steps + 1);
     for (let s = 0; s <= steps; s++) {
       const t = (s / steps) * T;
       let X = 0, Y = 0;
@@ -617,17 +626,43 @@
         X += h.w * Math.cos(h.fx * t + h.px);
         Y += h.w * Math.sin(h.fy * t + h.py);
       }
-      const rx = (X * cr - Y * sr) * amp;
-      const ry = (X * sr + Y * cr) * amp;
-      if (s === 0) ctx.moveTo(cx + rx, cy + ry);
-      else ctx.lineTo(cx + rx, cy + ry);
+      bx[s] = cx + (X * cr - Y * sr) * amp;
+      by[s] = cy + (X * sr + Y * cr) * amp;
     }
-    ctx.strokeStyle = color;
-    ctx.lineWidth = G.lw * (lwMul || 1);
-    ctx.lineJoin = "round";
-    ctx.lineCap = "round";
+
+    // Per-point line weight from local pen speed — thin where the pen moves fast,
+    // heavy where it slows (ink-pen physics). Rendered as a filled ribbon, so the
+    // weight varies smoothly AND the edges are anti-aliased (no faceting). Width is
+    // a deterministic function of the path, so a given work always renders the same.
+    const base = G.lw * (lwMul || 1);
+    const sp = new Float64Array(steps + 1);
+    let mean = 0;
+    for (let s = 1; s <= steps; s++) { sp[s] = Math.hypot(bx[s] - bx[s-1], by[s] - by[s-1]); mean += sp[s]; }
+    sp[0] = sp[1]; mean = mean / steps || 1;
+    const half = new Float64Array(steps + 1);
+    for (let s = 0; s <= steps; s++) {
+      const m = Math.max(0, Math.min(1, 1.35 - 0.7 * (sp[s] / mean)));
+      half[s] = Math.max(0.28, base * (0.45 + 1.10 * m)) / 2;   // floor keeps thin parts from vanishing
+    }
+
+    // ribbon = one filled quad per segment; nonzero winding merges the overlaps
+    ctx.beginPath();
+    for (let s = 0; s < steps; s++) {
+      let dx = bx[s+1] - bx[s], dy = by[s+1] - by[s];
+      const L = Math.hypot(dx, dy) || 1e-6; dx /= L; dy /= L;
+      const nx = -dy, ny = dx, wa = half[s], wb = half[s+1];
+      ctx.moveTo(bx[s] + nx*wa, by[s] + ny*wa);
+      ctx.lineTo(bx[s+1] + nx*wb, by[s+1] + ny*wb);
+      ctx.lineTo(bx[s+1] - nx*wb, by[s+1] - ny*wb);
+      ctx.lineTo(bx[s] - nx*wa, by[s] - ny*wa);
+    }
+    // round the joints only on large static renders (sub-pixel on small belt cells)
+    if (size >= 600) {
+      for (let s = 0; s <= steps; s++) { ctx.moveTo(bx[s] + half[s], by[s]); ctx.arc(bx[s], by[s], half[s], 0, TAU); }
+    }
+    ctx.fillStyle = color;
     ctx.globalAlpha = 0.92;
-    ctx.stroke();
+    ctx.fill();
     ctx.restore();
   }
 
@@ -789,15 +824,22 @@
     const muted = css("--muted"), faint = css("--faint"),
           blue = css("--blue"), signal = css("--signal"), paper = css("--paper");
 
-    // faint sample field — a jittered lattice bleeding to all edges: the latent
-    // space as ground (low contrast, reads behind everything). No frame.
-    mctx.fillStyle = faint; mctx.globalAlpha = 0.26;
-    const cols = Math.max(28, Math.round(W / (26 * dpr))), rows = Math.max(10, Math.round(H / (26 * dpr)));
-    for (let a = 0; a < cols; a++) {
-      for (let b = 0; b < rows; b++) {
-        const jx = value2(a * 1.7, b * 2.3), jy = value2(a * 3.1, b * 1.1);
-        const gx = (a + jx * 0.6) / cols * W, gy = (b + jy * 0.6) / rows * H;
-        mctx.fillRect(gx - dpr * 0.6, gy - dpr * 0.6, dpr * 1.2, dpr * 1.2);
+    // the coordinate lattice — a regular dot grid at 0.1-unit spacing, aligned to the
+    // [0,1] projection but tiled across the WHOLE band and dissolving at the edges:
+    // the space is a measured field that continues past the window (no box, no edges).
+    // The [0,1] unit where the walk lives is just one region of the endless lattice.
+    const step = s * 0.1, fadePx = 70 * dpr;
+    const kx0 = Math.ceil((0 - ox) / step), kx1 = Math.floor((W - ox) / step);
+    const ky0 = Math.ceil((0 - oy) / step), ky1 = Math.floor((H - oy) / step);
+    mctx.fillStyle = faint;
+    for (let kx = kx0; kx <= kx1; kx++) {
+      const gx = ox + kx * step;
+      for (let ky = ky0; ky <= ky1; ky++) {
+        const gy = oy + ky * step;
+        const f = Math.min(gx, W - gx, gy, H - gy) / fadePx;
+        if (f <= 0) continue;
+        mctx.globalAlpha = 0.4 * Math.min(1, f);
+        mctx.beginPath(); mctx.arc(gx, gy, 1.05 * dpr, 0, TAU); mctx.fill();
       }
     }
     mctx.globalAlpha = 1;
@@ -865,10 +907,18 @@
     mctx.textAlign = "left";
 
     // the machine · now — the head of the shared walk (everyone's live position,
-    // not "yours"); when you look away it shows the point you froze on.
+    // not "yours"); when you look away it shows the point you froze on. A full-span
+    // crosshair locates it in the lattice and its coordinate is read out beside it —
+    // the same value the header shows — tying the map to the readout. Both live.
     const cc = coordFor(state.centerSerial);
     const nx = X(cc.u), ny = Y(cc.v);
-    mctx.fillStyle = signal;
+    mctx.strokeStyle = signal; mctx.globalAlpha = 0.36; mctx.lineWidth = 1 * dpr;
+    mctx.beginPath(); mctx.moveTo(0, ny); mctx.lineTo(W, ny); mctx.stroke();
+    mctx.beginPath(); mctx.moveTo(nx, 0); mctx.lineTo(nx, H); mctx.stroke();
+    mctx.globalAlpha = 1;
+    mctx.fillStyle = signal; mctx.textAlign = "left";
+    mctx.font = (10 * dpr) + "px ui-monospace, Menlo, monospace";
+    mctx.fillText(cc.u.toFixed(3) + ", " + cc.v.toFixed(3), nx + 11 * dpr, ny - 9 * dpr);
     mctx.beginPath(); mctx.arc(nx, ny, 3.6 * dpr, 0, TAU); mctx.fill();
     mctx.strokeStyle = signal; mctx.globalAlpha = 0.5; mctx.lineWidth = 1 * dpr;
     mctx.beginPath(); mctx.arc(nx, ny, 7 * dpr, 0, TAU); mctx.stroke(); mctx.globalAlpha = 1;
@@ -957,6 +1007,49 @@
   }
   youToggle.addEventListener("click", () => setDrawer(!drawerEl.classList.contains("open")));
   document.getElementById("drawer-x").addEventListener("click", () => setDrawer(false));
+
+  // Tap outside to dismiss. Capture-phase so the tap that closes the drawer is
+  // swallowed (it doesn't also open an inspect card behind it). The handle is
+  // excluded so its own toggle still works.
+  document.addEventListener("click", e => {
+    if (!drawerEl.classList.contains("open")) return;
+    if (drawerEl.contains(e.target) || youToggle.contains(e.target)) return;
+    setDrawer(false);
+    e.stopPropagation(); e.preventDefault();
+  }, true);
+
+  // Drag the drawer rightward to dismiss. touch-action:pan-y (in CSS) keeps the
+  // ledger vertically scrollable; we only claim horizontal drags.
+  let dStartX = 0, dStartY = 0, dragging = false, dDx = 0, tracking = false;
+  drawerEl.addEventListener("pointerdown", e => {
+    if (!drawerEl.classList.contains("open")) return;
+    if (e.pointerType === "mouse" && e.button !== 0) return;
+    dStartX = e.clientX; dStartY = e.clientY; dDx = 0; dragging = false; tracking = true;
+  });
+  drawerEl.addEventListener("pointermove", e => {
+    if (!tracking) return;
+    const dx = e.clientX - dStartX, dy = e.clientY - dStartY;
+    if (!dragging) {
+      if (Math.abs(dx) < 6 && Math.abs(dy) < 6) return;
+      if (Math.abs(dy) >= Math.abs(dx)) { tracking = false; return; } // vertical → let it scroll
+      dragging = true;
+      drawerEl.style.transition = "none";
+      try { drawerEl.setPointerCapture(e.pointerId); } catch (_) {}
+    }
+    dDx = Math.max(0, dx);
+    drawerEl.style.transform = "translateX(" + dDx + "px)";
+  });
+  function endDrag() {
+    tracking = false;
+    if (!dragging) return;
+    dragging = false;
+    drawerEl.style.transition = "";
+    drawerEl.style.transform = "";
+    if (dDx > drawerEl.offsetWidth * 0.33) setDrawer(false);
+    dDx = 0;
+  }
+  drawerEl.addEventListener("pointerup", endDrag);
+  drawerEl.addEventListener("pointercancel", endDrag);
   function updateHUD() {
     // produced is objective: works since birth, derived from time — it ticks even
     // while you look away (the machine does not care that you are watching).
@@ -1013,7 +1106,8 @@
     persist();
     renderLedger();
     updateHUD();
-    setDrawer(true);   // surface the drawer so the fresh certificate lands in view
+    // The "Signed · you" count (with its ▾ handle) updates to reflect the new
+    // certificate; the drawer stays user-controlled rather than auto-opening.
     seamEl.innerHTML = "✓ SIGNED · № " + serial.toLocaleString("en-US") + " is now yours";
     seamEl.classList.add("on");
     seamTimer = 2.2;
