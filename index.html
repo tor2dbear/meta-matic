@@ -258,6 +258,16 @@
   .panel .hd .t { font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; }
   .panel .hd .n { font-size: 9.5px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--faint); }
   #map { display: block; width: 100%; height: auto; }
+  .map-legend {
+    display: flex; gap: 12px; flex-wrap: wrap; padding: 8px 11px;
+    border-top: 1px solid var(--line-2);
+    font-size: 8.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted);
+  }
+  .map-legend span { display: flex; align-items: center; gap: 5px; }
+  .map-legend i { display: inline-block; width: 10px; height: 10px; flex: 0 0 auto; }
+  .map-legend .lg-path { width: 14px; height: 0; border-top: 2px solid var(--muted); }
+  .map-legend .lg-mark { border: 1.8px solid var(--blue); border-radius: 50%; }
+  .map-legend .lg-now { background: var(--signal); border-radius: 50%; }
 
   .ledger { max-height: 236px; overflow-y: auto; }
   .ledger .empty { padding: 14px 12px; color: var(--faint); font-size: 11.5px; line-height: 1.5; }
@@ -273,6 +283,7 @@
     color: var(--signal); border: 1px solid color-mix(in srgb, var(--signal) 40%, var(--line));
     padding: 1px 5px; margin-bottom: 3px; align-self: flex-start;
   }
+  .cert .mark-no { color: var(--blue); font-weight: 700; font-size: 10px; letter-spacing: 0.08em; margin-right: 7px; }
   .cert.newest { background: color-mix(in srgb, var(--signal) 7%, var(--paper)); }
   .cert .quip { font-size: 10px; color: var(--muted); line-height: 1.5; margin-top: 4px; padding-top: 5px; border-top: 1px dashed var(--line-2); }
   .cert-save {
@@ -364,11 +375,16 @@
 
   <div class="aside">
     <div class="panel">
-      <div class="hd"><span class="t">Your path through the space</span><span class="n">no edges · everything recurs</span></div>
+      <div class="hd"><span class="t">The space</span><span class="n">one path · everyone walks it</span></div>
       <canvas id="map" width="560" height="560"></canvas>
+      <div class="map-legend">
+        <span><i class="lg-path"></i>Shared path</span>
+        <span><i class="lg-mark"></i>Your signings</span>
+        <span><i class="lg-now"></i>The machine · now</span>
+      </div>
     </div>
     <div class="panel cert-wrap">
-      <div class="hd"><span class="t">Certificates of authenticity</span><span class="n" id="ledger-count">0 signed</span></div>
+      <div class="hd"><span class="t">Your certificates</span><span class="n" id="ledger-count">0 signed</span></div>
       <div class="ledger" id="ledger">
         <div class="empty">Nothing signed yet. What you sign becomes <em>yours</em> — signed by you, drawn by no one.</div>
       </div>
@@ -655,7 +671,10 @@
     bctx.strokeRect(cxC - half2 - 4, cy - half2 - 4, plate + 8, plate + 8);
   }
 
-  /* ---------- render minimap ---------- */
+  /* ---------- render the space (latent map) ----------
+     The walk is a deterministic function of the serial — the SAME path for every
+     viewer. So this is not "your path": it's the machine's one trajectory through
+     the space, which everyone walks in lockstep. What is yours are the marks. */
   function renderMap() {
     const s = map.width;
     mctx.clearRect(0, 0, s, s);
@@ -663,46 +682,82 @@
     const box = s - pad * 2;
     const X = u => pad + u * box;
     const Y = v => pad + v * box;
+    const muted = css("--muted"), faint = css("--faint"), line = css("--line"),
+          blue = css("--blue"), signal = css("--signal"), paper = css("--paper");
 
     // frame ("the space")
-    mctx.strokeStyle = css("--line");
-    mctx.lineWidth = 1;
+    mctx.strokeStyle = line; mctx.lineWidth = 1;
     mctx.strokeRect(pad, pad, box, box);
 
-    // trail of recently seen coords (density / revisiting)
-    mctx.fillStyle = css("--faint");
+    // faint trail of recently seen coords — the space fills up; everything recurs
+    mctx.fillStyle = faint;
     for (let k = 0; k < seenBuf.length; k += 2) {
       const c = seenBuf[k];
-      mctx.globalAlpha = 0.35;
+      mctx.globalAlpha = 0.3;
       mctx.fillRect(X(c.u) - 1, Y(c.v) - 1, 2, 2);
     }
     mctx.globalAlpha = 1;
 
-    // the path around the current window
+    // the shared path — the machine's one trajectory, same for everyone. Faded to
+    // nothing at both ends: an endless line passing through the window, no start,
+    // no end (no edges · everything recurs). "You · now" is its head.
     const base = Math.floor(state.scroll / STRIDE);
-    mctx.strokeStyle = css("--muted");
+    const WMAP = 110;
+    mctx.strokeStyle = muted;
     mctx.lineWidth = 1.2 * dpr;
-    mctx.beginPath();
-    for (let g = base - 110; g <= base + 110; g++) {
-      const c = coordFor(g);
+    let prev = null;
+    for (let o = -WMAP; o <= WMAP; o++) {
+      const c = coordFor(base + o);
       const px = X(c.u), py = Y(c.v);
-      if (g === base - 110) mctx.moveTo(px, py); else mctx.lineTo(px, py);
+      if (prev) {
+        mctx.globalAlpha = 0.85 * Math.pow(1 - Math.abs(o) / WMAP, 0.9);
+        mctx.beginPath(); mctx.moveTo(prev[0], prev[1]); mctx.lineTo(px, py); mctx.stroke();
+      }
+      prev = [px, py];
     }
-    mctx.stroke();
+    mctx.globalAlpha = 1;
 
-    // minted pins
-    for (const m of state.minted) {
-      mctx.strokeStyle = css("--signal");
-      mctx.lineWidth = 1.2 * dpr;
-      const px = X(m.u), py = Y(m.v), r = 4 * dpr;
-      mctx.beginPath(); mctx.moveTo(px - r, py); mctx.lineTo(px + r, py);
-      mctx.moveTo(px, py - r); mctx.lineTo(px, py + r); mctx.stroke();
+    // your signings — ultramarine marks. Draw the rings first, then the numbers
+    // with a simple vertical declutter, so clustered or duplicate marks keep
+    // readable labels that still map to the numbered certificates.
+    const r = 4.5 * dpr;
+    state.minted.forEach(m => {
+      const px = X(m.u), py = Y(m.v);
+      mctx.beginPath(); mctx.arc(px, py, r, 0, TAU); mctx.fillStyle = paper; mctx.fill();
+      mctx.beginPath(); mctx.arc(px, py, r, 0, TAU); mctx.strokeStyle = blue; mctx.lineWidth = 1.8 * dpr; mctx.stroke();
+    });
+    mctx.fillStyle = blue; mctx.textAlign = "left";
+    mctx.font = "700 " + (8.5 * dpr) + "px 'Helvetica Neue', Arial, sans-serif";
+    const lh = 10.5 * dpr, placed = [];
+    state.minted.forEach((m, i) => {
+      let lx = X(m.u) + r + 2 * dpr, ly = Y(m.v) - r, guard = 0;
+      while (guard++ < 30 && placed.some(p => Math.abs(p.x - lx) < 8 * dpr && Math.abs(p.y - ly) < lh)) ly += lh;
+      placed.push({ x: lx, y: ly });
+      mctx.fillText(String(i + 1), lx, ly);
+    });
+
+    // recurrence: mark near-identical signings with ≈ — your "unique" pick, twice
+    mctx.fillStyle = muted;
+    mctx.font = (11 * dpr) + "px ui-monospace, Menlo, monospace";
+    mctx.textAlign = "center";
+    for (let i = 0; i < state.minted.length; i++) {
+      for (let j = i + 1; j < state.minted.length; j++) {
+        const a = state.minted[i], b = state.minted[j];
+        if (Math.hypot(a.u - b.u, a.v - b.v) < SEAM_EPS * 1.4) {
+          mctx.fillText("≈", (X(a.u) + X(b.u)) / 2, Math.min(Y(a.v), Y(b.v)) - 9 * dpr);
+        }
+      }
     }
+    mctx.textAlign = "left";
 
-    // current position
+    // the machine · now — the head of the shared walk (everyone's live position,
+    // not "yours"); when you look away it shows the point you froze on.
     const cc = coordFor(state.centerSerial);
-    mctx.fillStyle = css("--signal");
-    mctx.beginPath(); mctx.arc(X(cc.u), Y(cc.v), 3.4 * dpr, 0, TAU); mctx.fill();
+    const nx = X(cc.u), ny = Y(cc.v);
+    mctx.fillStyle = signal;
+    mctx.beginPath(); mctx.arc(nx, ny, 3.6 * dpr, 0, TAU); mctx.fill();
+    mctx.strokeStyle = signal; mctx.globalAlpha = 0.5; mctx.lineWidth = 1 * dpr;
+    mctx.beginPath(); mctx.arc(nx, ny, 7 * dpr, 0, TAU); mctx.stroke(); mctx.globalAlpha = 1;
   }
 
   /* ---------- seam (recurrence) detection ---------- */
@@ -909,6 +964,7 @@
       const meta = document.createElement("div");
       meta.className = "meta";
       meta.innerHTML =
+        '<span class="mark-no">◆ ' + (idx + 1) + '</span>' +
         (idx === 0 ? '<span class="tag">Latest</span>' : '') +
         '<div class="row"><span class="lab">Serial</span><span class="val">№ ' + m.serial.toLocaleString("en-US") + '</span></div>' +
         '<div class="row"><span class="lab">Coord</span><span class="val">' + m.u.toFixed(4) + ' , ' + m.v.toFixed(4) + '</span></div>' +
