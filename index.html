@@ -795,7 +795,7 @@
     // through nearby points in the latent walk), settling to its definite form exactly
     // at now. Turbulence/morph animate with wall-clock time; frozen on look-away and
     // under reduced-motion.
-    const ph = (state.looking && !reduced) ? performance.now() * 0.00035 : (state.frozenSerial || 0);
+    const ph = (state.looking && !reduced) ? performance.now() * 0.00022 : (state.frozenSerial || 0);
     const FC = 0.45; // commit point, as a fraction of the half-belt right of now
     bctx.font = "10px ui-monospace, Menlo, monospace";
     for (let i = -half; i <= half; i++) {
@@ -806,11 +806,15 @@
       let u, v, nu = 0;
       if (f <= 0) {                     // past + now — fixed, definite
         ({ u, v } = coordFor(serial));
-      } else {                          // future — morph (near), then diffusion (far)
-        const morph = 0.7 * Math.min(1, f / FC);                 // 0 at now → max at commit
-        const mS = serial + morph * (value1(serial * 3.3 + ph * 2) - 0.5) * 2; // wobble along the walk
-        ({ u, v } = coordFor(mS));
+      } else {                          // future — diffusion (far), then morph (near)
         nu = Math.max(0, Math.min(1, (f - FC) / (1 - FC)));      // diffusion only beyond commit
+        // Morph lives ONLY inside the commit point and is paced by the work's
+        // approach, not by an independent clock: it travels steadily from a fixed
+        // committed neighbour to its final self as it nears now (0 at now), and is
+        // off entirely in the diffusion zone (× (1 − nu)). No wobble, no boil.
+        const morphAmt = Math.min(1, f / FC) * (1 - nu);
+        const off = (value1(serial * 1.7) - 0.5) * 2;            // fixed per-work direction (±1 serial)
+        ({ u, v } = coordFor(serial + morphAmt * off));
       }
 
       // plate frame
