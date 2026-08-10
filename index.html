@@ -119,7 +119,7 @@
 
   .seam {
     position: absolute; top: 14px; left: 50%; transform: translateX(-50%);
-    z-index: 4; display: flex; align-items: center; gap: 8px;
+    z-index: 7; display: flex; align-items: center; gap: 8px; /* above the focus overlay (6) so wallet notices aren't buried under its blur */
     background: var(--signal); color: #fff;
     padding: 5px 12px; font-size: 11px; letter-spacing: 0.06em;
     border-radius: 2px; opacity: 0; transition: opacity .25s ease;
@@ -464,7 +464,11 @@
     const G = genesFor(u, v);
     const amp = size * 0.44 * G.scale;
     const T = TAU * G.cycles;
-    const steps = 1050;
+    // Interactive draws (belt, inspect, ledger — all well under 600px) keep the
+    // original 1050 steps, so the per-frame belt cost is unchanged. Only large
+    // static renders like the 1400px PNG export scale up (with size × loops) to
+    // stay smooth instead of faceted.
+    const steps = size >= 600 ? Math.round(size * G.cycles * 0.6) : 1050;
     const cr = Math.cos(G.rot), sr = Math.sin(G.rot);
     ctx.save();
     // Clip each work to its own cell. A work's radius can reach ~0.62·size while
