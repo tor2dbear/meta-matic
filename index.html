@@ -372,7 +372,7 @@
      signature tally. Leave it "" and the page runs fully offline: the global
      chip shows "—", the "signed N times" line stays hidden, and everything else
      (belt, inspect, local sign + save) keeps working from localStorage alone. */
-  const API = "https://meta-matic-api.tor-bjorn-com.workers.dev";
+  const API = "https://api.tor2dbear.com/meta-matic";
   const apiEnabled = () => typeof API === "string" && API.length > 0;
 
   async function apiGet(path) {
@@ -464,6 +464,13 @@
     const T = TAU * G.cycles;
     const steps = 1050;
     const cr = Math.cos(G.rot), sr = Math.sin(G.rot);
+    ctx.save();
+    // Clip each work to its own cell. A work's radius can reach ~0.62·size while
+    // the plate half is 0.5·size, so tall epicycle spikes would otherwise spill
+    // past the frame onto neighbouring plates. Keep the size; just contain it.
+    ctx.beginPath();
+    ctx.rect(cx - size / 2, cy - size / 2, size, size);
+    ctx.clip();
     ctx.beginPath();
     for (let s = 0; s <= steps; s++) {
       const t = (s / steps) * T;
@@ -483,7 +490,7 @@
     ctx.lineCap = "round";
     ctx.globalAlpha = 0.92;
     ctx.stroke();
-    ctx.globalAlpha = 1;
+    ctx.restore();
   }
 
   /* ---------- fingerprint hash ---------- */

@@ -23,15 +23,28 @@ function json(obj, status = 200) {
 
 const num = v => (parseInt(v, 10) || 0);
 
+// This Worker is mounted under a path prefix on the shared api.tor2dbear.com
+// gateway (route: api.tor2dbear.com/meta-matic/*), so requests arrive as
+// /meta-matic/stats etc. Strip that prefix when present so the route handlers
+// stay path-clean — and leave bare paths untouched so the *.workers.dev URL
+// (/stats, /sign) keeps working as a fallback.
+const BASE = "/meta-matic";
+function route(pathname) {
+  if (pathname === BASE) return "/";
+  if (pathname.startsWith(BASE + "/")) return pathname.slice(BASE.length);
+  return pathname;
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
+    const path = route(url.pathname);
 
     if (request.method === "OPTIONS") return new Response(null, { headers: CORS });
 
     // GET /stats            -> { total }
     // GET /stats?serial=123 -> { total, serial, count }
-    if (url.pathname === "/stats" && request.method === "GET") {
+    if (path === "/stats" && request.method === "GET") {
       const raw = url.searchParams.get("serial");
       const total = num(await env.TALLY.get("total"));
       if (raw === null) return json({ total });
@@ -42,7 +55,7 @@ export default {
     }
 
     // POST /sign  body: { "serial": 123 }  -> { total, serial, count }
-    if (url.pathname === "/sign" && request.method === "POST") {
+    if (path === "/sign" && request.method === "POST") {
       let body;
       try { body = await request.json(); }
       catch { return json({ error: "invalid JSON body" }, 400); }
