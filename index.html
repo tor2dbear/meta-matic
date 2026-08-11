@@ -286,8 +286,10 @@
 
   /* ---- The space — unboxed, full-bleed band ---- */
   .spaceband {
-    position: relative; flex: 0 0 auto; height: clamp(300px, 42vh, 440px);
-    background: var(--paper); border-top: 1px solid var(--line); overflow: hidden;
+    /* flex:1 → the field grows to absorb any leftover viewport height, so it fills
+       the page and pins the footer to the bottom; the clamp is its minimum (basis). */
+    position: relative; flex: 1 0 auto; height: clamp(300px, 42vh, 440px);
+    background: var(--surface); border-top: 1px solid var(--line); overflow: hidden;
   }
   #map { position: absolute; inset: 0; display: block; width: 100%; height: 100%; }
   .sb-label { position: absolute; top: 14px; left: clamp(16px, 4vw, 40px); pointer-events: none; }
@@ -373,9 +375,9 @@
   .cert-wrap { display: flex; flex-direction: column; }
 
   footer.credit {
-    padding: 12px clamp(16px, 4vw, 40px) 22px; border-top: 1px solid var(--line);
+    padding: 16px clamp(16px, 4vw, 40px); border-top: 1px solid var(--line);
     color: var(--faint); font-size: 10.5px; letter-spacing: 0.04em;
-    display: flex; justify-content: space-between; gap: 14px; flex-wrap: wrap;
+    display: flex; align-items: center; justify-content: space-between; gap: 14px; flex-wrap: wrap;
     background: var(--surface);
   }
   footer.credit a { color: var(--muted); }
@@ -483,7 +485,7 @@
 </aside>
 
 <footer class="credit">
-  <span>Kinetic art → latent space · epicycles over a continuous field</span>
+  <span>Kinetic art → latent space · epicycles over a continuous field · built by <a href="https://tor-bjorn.com" target="_blank" rel="noopener">Torbjörn Hedberg</a></span>
   <span>Infinitely many · never anything new · <a href="https://en.wikipedia.org/wiki/M%C3%A9tamatic" target="_blank" rel="noopener">about Métamatics</a></span>
 </footer>
 
@@ -1007,7 +1009,7 @@
     const X = u => ox + u * s;
     const Y = v => oy + v * s;
     const muted = css("--muted"), faint = css("--faint"),
-          blue = css("--blue"), signal = css("--signal"), paper = css("--paper");
+          blue = css("--blue"), signal = css("--signal"), bandbg = css("--surface");
 
     // the coordinate lattice — a regular dot grid at 0.1-unit spacing, aligned to the
     // [0,1] projection but tiled across the WHOLE band and dissolving at the edges:
@@ -1094,7 +1096,7 @@
     const r = 4.5 * dpr;
     state.minted.forEach(m => {
       const px = X(m.u), py = Y(m.v);
-      mctx.beginPath(); mctx.arc(px, py, r, 0, TAU); mctx.fillStyle = paper; mctx.fill();
+      mctx.beginPath(); mctx.arc(px, py, r, 0, TAU); mctx.fillStyle = bandbg; mctx.fill();
       mctx.beginPath(); mctx.arc(px, py, r, 0, TAU); mctx.strokeStyle = blue; mctx.lineWidth = 1.8 * dpr; mctx.stroke();
     });
     mctx.fillStyle = blue; mctx.textAlign = "left";
