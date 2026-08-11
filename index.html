@@ -943,12 +943,11 @@
       if (Math.abs(dxc) < W2) {
         const prox = 1 - Math.abs(dxc) / W2;
         if (serial <= Math.round(liveHeadF)) {
-          // The SNAP tracks the work's own resolve — the SAME thing the ink-set rides — so the
-          // ring goes solid exactly as the image inks and freezes, not a beat later (it used to
-          // key off screen position and reach full only dead-centre, lagging the lock). The click
-          // pop still keys off dead-centre (the freeze) for a crisp, tiny pulse at the instant.
+          // The SNAP rides the EXACT same curve as the stroke→ribbon "ink" set (resolve 0.97→1),
+          // so the ring goes solid in perfect lockstep with the line gaining its ink — same event,
+          // not two timings. The click pop keys off dead-centre (the freeze) for a crisp tiny pulse.
           const rz = 1 - nu;                                 // resolve: 0 far .. 1 locked (past = 1)
-          let snap = (rz - 0.9) / 0.09; snap = snap < 0 ? 0 : snap > 1 ? 1 : snap; snap = snap * snap * (3 - 2 * snap);
+          let snap = (rz - 0.97) / 0.03; snap = snap < 0 ? 0 : snap > 1 ? 1 : snap; snap = snap * snap * (3 - 2 * snap);
           const pop = ss((prox - 0.93) / 0.07);              // the click: a sharp, tiny pulse at the freeze
           // faint hint on approach → snap; hold solid after, soft-cutting only at the very edge
           const a = dxc > 0 ? Math.max(0.2 * prox, snap) : (prox > 0.3 ? 1 : prox / 0.3);
