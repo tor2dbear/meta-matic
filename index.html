@@ -627,14 +627,30 @@
     ctx.beginPath();
     ctx.rect(cx - size / 2, cy - size / 2, size, size);
     ctx.clip();
-    // trace the epicycle into a point buffer
+    // trace the epicycle into a point buffer. A work is a Fourier sum (rotating circles);
+    // FUTURE works reveal it LOW → HIGH frequency: far out only the low-frequency harmonics
+    // are known (a coarse loop), and higher-frequency detail gates in as it resolves — the
+    // drawing's own spectrum sharpening, the way band-limited images go coarse → fine. This
+    // is the mathematically-native "unknown", not borrowed raster noise. resolve=1 → all
+    // harmonics (the exact final curve); locked/cached works skip the gate entirely.
+    let gate = null;
+    if (nu > 0.02) {
+      let fmax = 1e-6;
+      for (const h of G.harm) { const fr = Math.max(Math.abs(h.fx), Math.abs(h.fy)); if (fr > fmax) fmax = fr; }
+      const resolve = 1 - nu, BAND = 0.5;
+      gate = G.harm.map(h => {
+        const nf = Math.max(Math.abs(h.fx), Math.abs(h.fy)) / fmax;   // 0..1, 1 = finest detail
+        const g = (resolve - (nf - BAND)) / BAND; return g < 0 ? 0 : g > 1 ? 1 : g;
+      });
+    }
     const bx = new Float64Array(steps + 1), by = new Float64Array(steps + 1);
     for (let s = 0; s <= steps; s++) {
       const t = (s / steps) * T;
       let X = 0, Y = 0;
-      for (const h of G.harm) {
-        X += h.w * Math.cos(h.fx * t + h.px);
-        Y += h.w * Math.sin(h.fy * t + h.py);
+      for (let hi = 0; hi < G.harm.length; hi++) {
+        const h = G.harm[hi], w = gate ? h.w * gate[hi] : h.w;
+        X += w * Math.cos(h.fx * t + h.px);
+        Y += w * Math.sin(h.fy * t + h.py);
       }
       bx[s] = cx + (X * cr - Y * sr) * amp;
       by[s] = cy + (X * sr + Y * cr) * amp;
@@ -682,24 +698,13 @@
       ctx.globalAlpha = 0.92;
       ctx.fill();
     } else {
-      // FUTURE — a denoise: the drawing EMERGES from noise and SHARPENS in place, never
-      // assembled from travelling dots. Three things ease together as it nears now — the
-      // grain thins out where it stands, the line's wander shrinks, and its soft/fat stroke
-      // tightens to the crisp final weight. Blurry → sharper → perfect, exactly at the centre.
-      const resolve = 1 - nu, halfS = size / 2;
-      // (a) grain thinning IN PLACE — each speck persists until its own threshold, then is
-      //     simply gone (no motion), like noise being subtracted step by step.
-      const M = Math.min(440, Math.round(size * 1.5));
-      ctx.globalAlpha = Math.min(0.55, 0.72 * nu);
-      for (let k = 0; k < M; k++) {
-        if (resolve < h2(k * 3 + 5, seed + 19)) {
-          ctx.fillRect(cx - halfS + h2(k + 3, seed) * size, cy - halfS + h2(k * 2 + 7, seed * 3 + 11) * size, 1.4, 1.4);
-        }
-      }
-      // (b) the line itself — wandering, fat and faint when noisy; exact, crisp and solid
-      //     as it resolves. This is what makes it "get sharper and sharper until perfect".
-      ribbon(size * 0.13 * nu * nu, 1 + 2.4 * nu);
-      ctx.globalAlpha = Math.min(0.9, 0.12 + 0.82 * resolve * resolve);
+      // FUTURE — low resolution → high. The coarse loop (low harmonics, already traced
+      // above) fades in first, a touch soft; as detail gates in the curve gains its wiggles
+      // and the stroke tightens to the exact weight. Sharper and sharper until perfect, at
+      // the centre. The shape itself carries the resolve — no grain, no screen-space wander.
+      const resolve = 1 - nu;
+      ribbon(0, 1 + 0.5 * nu);
+      ctx.globalAlpha = Math.min(0.92, 0.16 + 0.84 * resolve);
       ctx.fill();
     }
     ctx.globalAlpha = 1;
@@ -743,6 +748,9 @@
   const seenBuf = []; // {g,u,v}
   const SEAM_EPS = 0.020;
   const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  // Comparison switch: append ?diffusion=off to render future works fully-formed (no
+  // low→high reveal) so the belt can be felt with and without the diffusion effect.
+  const DIFFUSION_OFF = new URLSearchParams(location.search).get("diffusion") === "off";
 
   /* ---------- canvas setup ---------- */
   const stage = document.getElementById("stage");
@@ -862,7 +870,7 @@
       if (cx < -STRIDE || cx > W + STRIDE) continue;
       const f = (serial - liveHeadF) / SPAN; // serials ahead of the live head / SPAN — 0 at now, <0 = past.
       let u, v, nu = 0;
-      if (f <= 0) {                     // past + now — fixed, definite, locked
+      if (f <= 0 || DIFFUSION_OFF) {    // past + now (or diffusion disabled) — fully-formed, locked
         ({ u, v } = coordFor(serial));
       } else {                          // future — the drawing emerges from noise and sharpens, all at now
         const resolveF = Math.pow(ss((NHZ - f) / NHZ), 1.8);     // stays soft, sharpens late (at now)
@@ -893,22 +901,22 @@
       bctx.fillText("№ " + serial.toLocaleString("en-US"), cx, cy + half2 + 15);
       bctx.globalAlpha = 1;
 
-      // the signing frame belongs to the signing point, not to the plate: it only
-      // appears once a plate actually TOUCHES the centre line (|cx − centre| ≤ half a
-      // plate) and reaches full solid exactly when centred — no ring on the next work
-      // in line. A future work at the point is unresolved, so it gets a muted dashed
-      // "not yet" ring instead of the red one.
-      const prox = 1 - Math.min(1, Math.abs(cx - centerScreen) / half2);
-      if (prox > 0.001) {
+      // the signing ring belongs to the signing point, not the plate: it fades IN as a work
+      // reaches the point from the future side, then holds SOLID through and past the centre
+      // — fade-in, no fade-out (it cuts at the hand-off to the next work). A future work at
+      // the point is unresolved, so it shows a muted dashed "not yet" ring instead.
+      const dxc = cx - centerScreen;
+      if (Math.abs(dxc) < half2) {
+        const a = dxc > 0 ? 1 - dxc / half2 : 1;   // fade in from the right; solid at & past centre
         if (serial <= Math.round(liveHeadF)) {
           bctx.strokeStyle = css("--signal");
-          bctx.globalAlpha = prox;
-          bctx.lineWidth = 1 + 0.75 * prox;
+          bctx.globalAlpha = a;
+          bctx.lineWidth = 1 + 0.75 * a;
           bctx.strokeRect(cx - half2 - 4, cy - half2 - 4, plate + 8, plate + 8);
           bctx.globalAlpha = 1;
         } else {
           bctx.strokeStyle = css("--muted");
-          bctx.globalAlpha = 0.7 * prox;
+          bctx.globalAlpha = 0.7 * a;
           bctx.lineWidth = 1;
           bctx.setLineDash([4, 4]);
           bctx.strokeRect(cx - half2 - 4, cy - half2 - 4, plate + 8, plate + 8);
