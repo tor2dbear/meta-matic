@@ -1,14 +1,17 @@
-// Méta-Matic ∞ — tally backend
-// A tiny Cloudflare Worker that keeps a global count of signatures:
-//   - a single global total ("total")
-//   - a per-work count ("sig:<serial>")
-// so the page can show "this work has been signed N times" and a global total.
+// Méta-Matic ∞ — certificate backend
 //
-// Storage is Workers KV (binding: TALLY). KV is simple and free-tier friendly,
-// but note the trade-offs at the bottom of this file.
+// A work can be *certified* exactly once — first signer wins, everyone after is
+// told it's taken. That single-owner rule is the point: a certificate of
+// authenticity for something that was never new. Two ways to certify:
+//   - browser : an instant, browser-id-backed certificate
+//   - wallet  : the same, plus a personal_sign signature (verifiable provenance)
+//
+// Storage is Cloudflare D1 (binding: DB). Exclusivity is enforced by the schema:
+// `serial` is the PRIMARY KEY, so a second concurrent /claim on the same work
+// fails the INSERT instead of racing to a double-owner. No app-level locking.
 
 const CORS = {
-  "Access-Control-Allow-Origin": "*",              // public art piece; anyone may read/sign
+  "Access-Control-Allow-Origin": "*",              // public art piece; anyone may read/claim
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
   "Access-Control-Allow-Headers": "Content-Type",
   "Access-Control-Max-Age": "86400",
@@ -21,13 +24,24 @@ function json(obj, status = 200) {
   });
 }
 
-const num = v => (parseInt(v, 10) || 0);
+const str = (v, max) => (v == null ? null : String(v).slice(0, max));
+
+// Shape a DB row into the certificate object the client renders.
+function certOf(row) {
+  if (!row) return null;
+  return {
+    serial: row.serial,
+    method: row.method,
+    owner: row.owner_id,
+    address: row.address || null,
+    ts: row.ts,
+  };
+}
 
 // This Worker is mounted under a path prefix on the shared api.tor2dbear.com
 // gateway (route: api.tor2dbear.com/meta-matic/*), so requests arrive as
-// /meta-matic/stats etc. Strip that prefix when present so the route handlers
-// stay path-clean — and leave bare paths untouched so the *.workers.dev URL
-// (/stats, /sign) keeps working as a fallback.
+// /meta-matic/claim etc. Strip that prefix when present so the route handlers
+// stay path-clean — and leave bare paths untouched so the *.workers.dev URL keeps working.
 const BASE = "/meta-matic";
 function route(pathname) {
   if (pathname === BASE) return "/";
@@ -42,41 +56,75 @@ export default {
 
     if (request.method === "OPTIONS") return new Response(null, { headers: CORS });
 
-    // GET /stats            -> { total }
-    // GET /stats?serial=123 -> { total, serial, count }
+    // GET /stats -> { total }  — how many works have been certified, globally.
     if (path === "/stats" && request.method === "GET") {
-      const raw = url.searchParams.get("serial");
-      const total = num(await env.TALLY.get("total"));
-      if (raw === null) return json({ total });
-      const serial = Number(raw);
-      if (!Number.isFinite(serial)) return json({ error: "serial must be a number" }, 400);
-      const count = num(await env.TALLY.get("sig:" + serial));
-      return json({ total, serial, count });
+      const total = (await env.DB.prepare("SELECT COUNT(*) AS n FROM certificates").first("n")) || 0;
+      return json({ total });
     }
 
-    // POST /sign  body: { "serial": 123 }  -> { total, serial, count }
-    if (path === "/sign" && request.method === "POST") {
+    // GET /work?serial=N -> { serial, claimed, cert? }  — is this work available or taken?
+    if (path === "/work" && request.method === "GET") {
+      const serial = Number(url.searchParams.get("serial"));
+      if (!Number.isFinite(serial)) return json({ error: "serial must be a number" }, 400);
+      const row = await env.DB
+        .prepare("SELECT serial, method, owner_id, address, ts FROM certificates WHERE serial = ?")
+        .bind(serial).first();
+      return row ? json({ serial, claimed: true, cert: certOf(row) })
+                 : json({ serial, claimed: false });
+    }
+
+    // GET /claimed -> { certs: [{serial,u,v,method}] }  — every certified point, for the map.
+    // Bounded to the most recent 2000 so the payload stays small; serial->coord is
+    // deterministic client-side too, but we ship u,v so the map needs no recompute.
+    if (path === "/claimed" && request.method === "GET") {
+      const { results } = await env.DB
+        .prepare("SELECT serial, u, v, method FROM certificates ORDER BY ts DESC LIMIT 2000")
+        .all();
+      return json({ certs: results || [] });
+    }
+
+    // POST /claim { serial, method, id, address?, sig?, u, v, gen }
+    //   -> { ok:true, cert, total }            you got it
+    //   -> { ok:false, taken:true, cert }      someone was first
+    if (path === "/claim" && request.method === "POST") {
       let body;
       try { body = await request.json(); }
       catch { return json({ error: "invalid JSON body" }, 400); }
+
       const serial = Number(body && body.serial);
       if (!Number.isFinite(serial)) return json({ error: "serial (number) required" }, 400);
 
-      const key = "sig:" + serial;
-      // read-modify-write. Racy under high concurrency (see note below); fine here.
-      const total = num(await env.TALLY.get("total")) + 1;
-      const count = num(await env.TALLY.get(key)) + 1;
-      await Promise.all([
-        env.TALLY.put("total", String(total)),
-        env.TALLY.put(key, String(count)),
-      ]);
-      return json({ total, serial, count });
+      const method = body.method === "wallet" ? "wallet" : "browser";
+      const owner_id = str(body.id || body.address, 128);
+      if (!owner_id) return json({ error: "owner id required" }, 400);
+      const address = str(body.address, 64);
+      const sig = str(body.sig, 300);
+      const u = Number(body.u), v = Number(body.v);
+      if (!Number.isFinite(u) || !Number.isFinite(v)) return json({ error: "coordinate required" }, 400);
+      const gen = Number.isFinite(Number(body.gen)) ? Number(body.gen) : 1;
+      const ts = Date.now();
+
+      try {
+        await env.DB
+          .prepare("INSERT INTO certificates (serial, method, owner_id, address, sig, u, v, gen, ts) VALUES (?,?,?,?,?,?,?,?,?)")
+          .bind(serial, method, owner_id, address, sig, u, v, gen, ts).run();
+      } catch (e) {
+        // PRIMARY KEY / UNIQUE violation => already certified. Return the winner.
+        const row = await env.DB
+          .prepare("SELECT serial, method, owner_id, address, ts FROM certificates WHERE serial = ?")
+          .bind(serial).first();
+        if (row) return json({ ok: false, taken: true, cert: certOf(row) });
+        return json({ error: "claim failed" }, 500);   // some other DB error
+      }
+
+      const total = (await env.DB.prepare("SELECT COUNT(*) AS n FROM certificates").first("n")) || 0;
+      return json({ ok: true, cert: certOf({ serial, method, owner_id, address, ts }), total });
     }
 
     // index / health
     return json({
-      name: "meta-matic tally",
-      endpoints: ["GET /stats", "GET /stats?serial=<n>", "POST /sign {serial}"],
+      name: "meta-matic certificates",
+      endpoints: ["GET /stats", "GET /work?serial=<n>", "GET /claimed", "POST /claim {serial,method,id,...}"],
     });
   },
 };
@@ -84,16 +132,13 @@ export default {
 // ─────────────────────────────────────────────────────────────────────────────
 // Notes / trade-offs
 //
-// • Consistency: KV read-modify-write is not atomic. Two simultaneous /sign calls
-//   can both read N and write N+1, losing one. For this piece's traffic that's
-//   acceptable — and "the counter counts" tolerates a little slippage. If it ever
-//   needs exactness, move the counter to a Durable Object (atomic, still free-tier).
+// • Exclusivity is atomic by construction: `serial` PRIMARY KEY means the second
+//   concurrent INSERT throws (caught above) rather than both "winning". No locks.
 //
-// • Write limits: KV free tier allows ~1,000 writes/day; each /sign does 2 writes.
-//   Reads are cheap (~100k/day). Popular days may need the paid plan or a Durable
-//   Object. Reads are also eventually consistent (a fresh /stats may lag a /sign by
-//   up to ~60s at the edge).
+// • Abuse: /claim is open (no auth) and browser-id is cheap, so a script could
+//   land-grab serials. A per-IP rate limit is the mitigation — parked on the
+//   roadmap (NOTES.md) rather than shipped here, to keep the deploy simple.
 //
-// • Abuse: /sign is open by design (no auth) — thematically fitting for a machine
-//   that manufactures "ownership" of things that were never original. Add a per-IP
-//   rate limit later if the total gets spammed.
+// • Provenance: wallet claims store the address + personal_sign signature as-is;
+//   the client verifies. Server-side signature recovery (recover address from sig,
+//   assert it matches) is a roadmap item — it needs secp256k1 recovery in-Worker.

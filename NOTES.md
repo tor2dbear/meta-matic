@@ -32,16 +32,26 @@ aldrig var unikt är hela poängen — ironin är verket.
 - **Titta bort, inte stoppa.** Man kan frysa sin vy eller gummibands-peeka fram/
   bak (rubberband, spring-back), men maskinen tickar vidare. Bara *nuet* går att
   signera; det som passerat är borta om man inte sparade det.
-- **Signering.** Inspektera → signera medvetet. Signaturer sparas i webbläsaren
-  (localStorage). En liten Cloudflare Worker + KV håller en global räknare och
-  antal signaturer per verk (`api/`).
+- **Certifiering (exklusiv).** Inspektera → certifiera. Varje verk kan certifieras
+  **exakt en gång** — först till kvarn — via två metoder: *browser-id* (direkt) eller
+  *plånbok* (`personal_sign`, gratis signatur ovanpå). Certifikatet är ett äkthetsbevis
+  för något oändligt kopierbart — det är skämtet. Exklusiviteten är atomär: en
+  Cloudflare Worker + **D1** där `serial` är PRIMARY KEY, så två samtidiga claim på
+  samma verk inte kan bli dubbla ägare (`api/`). Certifikat sparas även lokalt
+  (localStorage); kartan plottar allas certifierade punkter.
 
 ## Beslut på pränt
 
 - **En enda `index.html`.** Canvas, inga beroenden, inget bygge — läsbar som
   portfoliokod. Backend (tally + plånbok) ligger separat i `api/`.
 - **Deploy:** Cloudflare Workers Builds (statiska assets i roten) + separat
-  Worker för API:t. Push → bygg → deploy.
+  Worker för API:t (`api/`, egen `wrangler deploy`, D1-binding `DB`). Push → bygg → deploy.
+- **Ägande = exklusivt certifikat (inte delad signering).** Efter att ha vägt A
+  (alla kan signera samma verk, "signed N times before you") mot B (ett verk = en
+  ägare): A var redundant med "inget är nytt" (sägs redan på generationsnivån) och
+  försvagade äkthetsbeviset. Valde **B**. Ironin överlever ändå — nära-dubbletter
+  återkommer, så ditt one-of-one är äkta men visuellt banalt. Två *metoder*
+  (browser/plånbok) att skapa certet — inte två *nivåer* av ägande.
 - **Performance är en förstaklassfråga.** Frysta/passerade verk cachas som bitmap
   (i princip gratis per frame), så kvaliteten kan skruvas upp; bara de ~2–3 verk
   som är mitt i morf/lås kostar per frame. Diffusionen är **skärmoberoende** —
@@ -62,8 +72,11 @@ Levererat:
   mot stroke→ribbon-övergången.
 - ✅ "The Space" — kartan över det latenta fältet (delad väg, dina signeringar,
   maskinens nu). Fyller nu hela lediga vyn.
-- ✅ Tally-backend (global summa + per-verk), plånbokssignering (`personal_sign`).
-- ✅ Inspektera & signera, spara signerat verk som bild.
+- ✅ Exklusivt certifikat: ett verk = en ägare, atomärt via D1 (`serial` PRIMARY KEY).
+  Två metoder att certifiera: browser-id (direkt) + plånbok (`personal_sign`).
+- ✅ "The Space" plottar allas certifierade punkter jämte dina egna.
+- ✅ Global räknare "Certified · all" (D1 `COUNT(*)`, race-fri).
+- ✅ Inspektera & certifiera, spara certifierat verk som bild.
 - ✅ Reduced-motion-läge (ingen autoplay, hämta stillbild av "nu").
 - ✅ SEO/social: OG-/Twitter-taggar + genererad `og.png`, `robots.txt`, `sitemap.xml`.
 
@@ -79,13 +92,16 @@ Levererat:
     dropship, inget lager) + Stripe Checkout. Deras API tar en bild-URL + produkt
     och sköter tryck & frakt. Ett par dagars jobb, mest kring betalning/fulfillment/
     frakt-edge-cases.
-- **Exakt räknare / skalning.** KV:s read-modify-write är inte atomär (två
-  samtidiga `/sign` kan tappa en) och gratis-KV taket är ~1 000 writes/dygn
-  (≈500 signeringar/dygn, 2 writes styck). Flytta räknaren till en **Durable
-  Object** när trafiken kräver exakthet/högre tak.
-- **Abuse-skydd på `/sign`.** Öppet by design, men en launch-spik eller en som
-  scriptar loopen kan bränna KV-kvoten. Billigaste motmedlet: en **Cloudflare
-  rate-limiting-regel** (dashboard, ingen kod). DO löser det på sikt.
+- **Rate-limit på `/claim`.** Öppet + billigt browser-id → en scriptare kan
+  land-grabba serier. Per-IP rate-limit är motmedlet — medvetet parkerat här (inte i
+  v1) för att hålla deployen enkel. Antingen en **Cloudflare rate-limiting-regel**
+  (dashboard, ingen kod) eller Workers native rate-limit-binding.
+- **Server-side verifiering av plånbokssignatur.** Nu lagras adress + `sig` som de
+  kommer (klienten verifierar). Återhämta adressen ur signaturen i workern och
+  bekräfta matchning — kräver secp256k1-recovery i Worker.
+- **Föräldralösa certifikat.** En browser-id-ägare som rensar cachen tappar sitt
+  cert men verket förblir låst av ett "spöke". Långsamt, nästan tematiskt; överväg
+  wallet-only exklusivitet om det blir ett problem.
 - **NFT-mint (on-chain).** Den gamla "skarpa" idén — kedjans `totalSupply` som
   global liggare. Möjlig men lågt prioriterad; plånbokssigneringen bär redan
   poängen off-chain och gratis.

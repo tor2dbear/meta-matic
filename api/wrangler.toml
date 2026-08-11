@@ -7,17 +7,17 @@ compatibility_date = "2026-08-01"
 # NOTE: unlike a custom_domain, a path route does NOT auto-create DNS. The
 # hostname "api.tor2dbear.com" needs a proxied placeholder record first — add a
 # proxied AAAA "api" -> 100:: in the tor2dbear.com zone (one-time).
-# With a route (and no workers_dev flag) wrangler disables the *.workers.dev URL,
-# so the Worker is reachable only at api.tor2dbear.com/meta-matic/*. Set
-# workers_dev = true below if you want the workers.dev URL back as a fallback.
 routes = [
   { pattern = "api.tor2dbear.com/meta-matic/*", zone_name = "tor2dbear.com" }
 ]
 
-# KV namespace for the tally counters.
-# This id points at the "meta-matic-api-TALLY" namespace already created in the
-# account. To recreate from scratch: npx wrangler kv namespace create TALLY
-# then paste the printed id below.
-[[kv_namespaces]]
-binding = "TALLY"
-id = "95de505f368c4be5818a78d0d9ff0d08"
+# D1 — the certificate ledger. `serial` is the PRIMARY KEY, so exactly one row can
+# exist per work: that constraint is what makes "one certificate per work" atomic
+# (a second concurrent /claim on the same serial fails the insert instead of racing).
+# The database was created out-of-band (dashboard / MCP); its schema lives in
+# api/schema.sql. To recreate: npx wrangler d1 create meta-matic-certs, paste the id
+# below, then npx wrangler d1 execute meta-matic-certs --file=schema.sql --remote
+[[d1_databases]]
+binding = "DB"
+database_name = "meta-matic-certs"
+database_id = "1850438b-4c4f-4b44-931c-a9617078437c"
