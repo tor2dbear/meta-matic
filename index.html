@@ -907,7 +907,9 @@
       let nu = 0;
       const { u, v } = coordFor(serial);
       if (f > 0 && !DIFFUSION_OFF) {    // future — starts tiny/coarse, resolves to full at now
-        nu = 1 - ss(Math.pow((NHZ - f) / NHZ, 2.2));   // pow biases the change into the last stretch before lock
+        nu = 1 - ss(Math.pow(Math.max(0, (NHZ - f) / NHZ), 2.2));   // clamp ≥0: on very wide viewports a plate can sit
+                                                       // >SPAN·NHZ ahead, and a negative base ^2.2 = NaN → the plate would
+                                                       // render fully resolved with a serial label. pow biases the change into the last stretch before lock
                                                        // (more movement there); the outer ss keeps a soft tail so
                                                        // it still eases — not slams — into the freeze
       }
@@ -1505,6 +1507,7 @@
   }
 
   function openFocus(serial) {
+    serial = Math.min(serial, Math.floor(liveNow())); // never inspect/sign an unproduced future work
     focusSerial = serial;
     if (reduced) { state.frozenSerial = machineSerial(); resumeLive = false; }
     else { resumeLive = state.looking; if (state.looking) setLooking(false); }
@@ -1575,8 +1578,15 @@
   // The pill is the live indicator + pause control. No parking: the belt is always
   // anchored to now, so it only ever reads Live or Paused (or a reduced-motion still).
   function updateLiveChip() {
-    if (reduced) { statusT.textContent = state.looking ? "Live" : "Still frame"; return; }
+    if (reduced) {
+      statusT.textContent = state.looking ? "Live" : "Still frame";
+      statusEl.setAttribute("aria-label", "Playback: still frame. Click to fetch the present.");
+      return;
+    }
     statusT.textContent = state.looking ? "Live" : "❚❚ Paused";
+    statusEl.setAttribute("aria-label", state.looking
+      ? "Playback: live. Click to pause here."
+      : "Playback: paused. Click to return to now.");
   }
   function setStatus(live) {
     statusEl.classList.toggle("away", !live);
@@ -1656,11 +1666,14 @@
   }
   belt.addEventListener("pointerup", endScrub);
   belt.addEventListener("pointercancel", endScrub);
+  // Safety: a press that never crossed the drag threshold (so no pointer capture) and released
+  // off the belt leaves ptrDown stuck true, which would let a later hover-move ghost-scrub. Clear it.
+  window.addEventListener("pointerup", () => { if (!scrubbing) ptrDown = false; });
 
   belt.addEventListener("click", e => {
     if (moved > 6) { moved = 0; return; }         // that was a scrub, not a tap
     const s = serialAtX(e.clientX);
-    if (s > Math.round(liveNow())) return;        // the true future is unresolved — not signable
+    if (s > Math.floor(liveNow())) return;        // the true future is unresolved — not signable (floor: the next serial isn't produced until now crosses it)
     openFocus(s);
   });
 
