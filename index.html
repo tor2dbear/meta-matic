@@ -610,7 +610,7 @@
     const amp = size * 0.44 * G.scale;
     const T = TAU * G.cycles;
     // Size scales with resolve: full at now, dwindling to a POINT far into the future.
-    const ampF = nu > 0.01 ? amp * Math.pow(1 - nu, 0.85) : amp;
+    const ampF = nu > 0.01 ? amp * Math.pow(1 - nu, 1.15) : amp;
     // A far work IS a point — draw it as a cheap dot and skip the whole trace/ribbon. This is
     // both the intended look and what keeps the many far plates nearly free, so the budget goes
     // to the few works actually resolving near lock.
@@ -632,11 +632,12 @@
     // cheap (a dense high-cycle scribble is an expensive fill) — they also trace fewer cycles
     // when coarse, so 320 steps is plenty. Locked works are cached (drawn once) and past/
     // inspect/export keep the high step count for crispness.
-    // FIXED step count for the belt (never per-frame-variable): changing the step count
-    // re-samples the whole curve every frame, and that resampling — not the morph — was the
-    // shake near lock. With sampling fixed, a work that grows/gains detail moves smoothly, and
-    // it matches the cache (also 560) at the freeze. Only large one-shot renders scale up.
-    const steps = size >= 600 ? Math.round(size * G.cycles * 0.6) : 560;
+    // Step count is FIXED per work (never per-frame-variable — that resampling was the old
+    // shake), and scales with COMPLEXITY so dense high-cycle works don't look faceted when
+    // locked. Same value live and cached, so the freeze stays soft (no sharpen-pop). This is
+    // where the "spend performance on complex forms" budget goes.
+    const steps = size >= 600 ? Math.round(size * G.cycles * 0.6)
+                : Math.round(Math.max(560, Math.min(1200, 360 + G.cycles * 70)));
     const cr = Math.cos(G.rot), sr = Math.sin(G.rot);
     ctx.save();
     // Clip each work to its own cell. A work's radius can reach ~0.62·size while
@@ -713,7 +714,7 @@
     // in over the last stretch into the lock, becoming the full ink-pen ribbon exactly at the
     // freeze (rendered once into the cache). ink 0 → 1 with an ease. The stroke is what lets the
     // morph run all the way to the signing point without stuttering on complex works.
-    let ink = (resolve - 0.9) / 0.1; ink = ink < 0 ? 0 : ink > 1 ? 1 : ink; ink = ink * ink * (3 - 2 * ink);
+    let ink = (resolve - 0.97) / 0.03; ink = ink < 0 ? 0 : ink > 1 ? 1 : ink; ink = ink * ink * (3 - 2 * ink);
     if (ink < 0.02) {
       ctx.globalAlpha = alpha;
       ctx.lineJoin = "round"; ctx.lineCap = "round";
@@ -903,7 +904,9 @@
       let nu = 0;
       const { u, v } = coordFor(serial);
       if (f > 0 && !DIFFUSION_OFF) {    // future — starts tiny/coarse, resolves to full at now
-        nu = 1 - Math.pow(ss((NHZ - f) / NHZ), 1.8);   // 0 (locked) at now, 1 at the horizon
+        nu = 1 - ss(Math.pow((NHZ - f) / NHZ, 2.2));   // pow biases the change into the last stretch before lock
+                                                       // (more movement there); the outer ss keeps a soft tail so
+                                                       // it still eases — not slams — into the freeze
       }
 
       // plate frame
