@@ -786,6 +786,7 @@
 
   /* ---------- canvas setup ---------- */
   const stage = document.getElementById("stage");
+  const signMarker = document.querySelector(".sign-marker");
   const belt = document.getElementById("belt");
   const bctx = belt.getContext("2d");
   const spaceband = document.getElementById("spaceband");
@@ -911,11 +912,13 @@
                                                        // it still eases — not slams — into the freeze
       }
 
-      // The "lock" — the ink setting in (stroke → ribbon) AND the ring snap — happens over the
-      // last LOCKPX screen-pixels into the signing line, driven by ONE screen-space value so the
-      // two are the same event and it reads as happening AT the line, not early.
-      const dxc = cx - centerScreen, LOCKPX = 22;
-      const lockT = ss(Math.max(0, Math.min(1, (LOCKPX - dxc) / LOCKPX)));
+      // The "lock" — ink set (stroke → ribbon) AND ring snap — happens over the last LOCKPX
+      // pixels into the LIVE HEAD (the present), not screen centre. In live view the head IS at
+      // centre so nothing changes; while scrubbing the head moves off-centre, and the lock (and
+      // the signing marker, below) follow it — so future works you peek at don't falsely lock.
+      const headDist = (serial - liveHeadF) * STRIDE;   // screen px from the present (= dxc in live view)
+      const LOCKPX = 22;
+      const lockT = ss(Math.max(0, Math.min(1, (LOCKPX - headDist) / LOCKPX)));
 
       // plate frame
       const half2 = plate / 2;
@@ -945,19 +948,19 @@
       // to solid right at the point with a brief overshoot "click" — the frame pops a touch
       // heavier and larger for the instant it locks, then settles to a solid ring and holds
       // (no fade-out). A future work at the point is unresolved → a muted dashed "not yet" ring.
-      // Window is half a STRIDE (not half a plate) so the ring covers the gap between works
-      // — no blink at the hand-off. prox is 1 dead-centre, 0 at the hand-off to the next work.
+      // The ring rides the LIVE HEAD (headDist), so it follows the present as you scrub — no
+      // blink at the hand-off (window is half a STRIDE). prox is 1 at the head, 0 at the hand-off.
       const W2 = STRIDE / 2;
-      if (Math.abs(dxc) < W2) {
-        const prox = 1 - Math.abs(dxc) / W2;
+      if (Math.abs(headDist) < W2) {
+        const prox = 1 - Math.abs(headDist) / W2;
         if (serial <= Math.round(liveHeadF)) {
-          // The SNAP is the SAME lockT that drives the stroke→ribbon ink set — one screen-space
-          // value — so the ring goes solid in perfect lockstep with the line gaining its ink, in
-          // the last LOCKPX before the line. The click pop keys off dead-centre (the freeze).
+          // The SNAP is the SAME lockT that drives the stroke→ribbon ink set, so the ring goes
+          // solid in lockstep with the line gaining its ink, in the last LOCKPX before the head.
+          // The click pop keys off the head itself (the freeze) for a crisp tiny pulse.
           const snap = lockT;
           const pop = ss((prox - 0.93) / 0.07);              // the click: a sharp, tiny pulse at the freeze
           // faint hint on approach → snap; hold solid after, soft-cutting only at the very edge
-          const a = dxc > 0 ? Math.max(0.2 * prox, snap) : (prox > 0.3 ? 1 : prox / 0.3);
+          const a = headDist > 0 ? Math.max(0.2 * prox, snap) : (prox > 0.3 ? 1 : prox / 0.3);
           const grow = pop * 1.4;                            // a small outward nudge on the click (subtle)
           bctx.strokeStyle = css("--signal");
           bctx.globalAlpha = a;
@@ -1695,6 +1698,10 @@
     }
     const viewSerial = (state.looking ? machineSerial() : state.frozenSerial) + scrubOffset;
     state.scroll = viewSerial * STRIDE;
+    // The signing marker rides the present: while scrubbing, the live head moves off-centre by
+    // -scrubOffset·STRIDE, so slide the marker there — the signing point follows the scrub and
+    // springs back to centre on release.
+    signMarker.style.transform = scrubOffset ? "translateX(" + (-scrubOffset * STRIDE) + "px)" : "";
     if (state.looking && Math.abs(scrubOffset) < 0.5) advanceBookkeeping();
     if (seamTimer > 0) { seamTimer -= dt; if (seamTimer <= 0) seamEl.classList.remove("on"); }
     renderBelt();
