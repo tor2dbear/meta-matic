@@ -633,15 +633,25 @@
     // drawing's own spectrum sharpening, the way band-limited images go coarse → fine. This
     // is the mathematically-native "unknown", not borrowed raster noise. resolve=1 → all
     // harmonics (the exact final curve); locked/cached works skip the gate entirely.
-    let gate = null;
+    let gate = null, gnorm = 1;
     if (nu > 0.02) {
-      let fmax = 1e-6;
-      for (const h of G.harm) { const fr = Math.max(Math.abs(h.fx), Math.abs(h.fy)); if (fr > fmax) fmax = fr; }
-      const resolve = 1 - nu, BAND = 0.5;
-      gate = G.harm.map(h => {
-        const nf = Math.max(Math.abs(h.fx), Math.abs(h.fy)) / fmax;   // 0..1, 1 = finest detail
-        const g = (resolve - (nf - BAND)) / BAND; return g < 0 ? 0 : g > 1 ? 1 : g;
+      const N = G.harm.length, resolve = 1 - nu;
+      // Reveal the harmonics ONE AT A TIME, coarse (low-frequency) first: a clean loop, then
+      // a figure-eight, then finer wiggles, up to the full curve. That's the "low resolution
+      // → high" — you watch it win detail, not opacity.
+      const order = G.harm.map((h, i) => ({ i, fr: Math.max(Math.abs(h.fx), Math.abs(h.fy)) }))
+                          .sort((a, b) => a.fr - b.fr);
+      gate = new Array(N).fill(0);
+      order.forEach((o, rank) => {
+        if (rank === 0) { gate[o.i] = 1; return; }        // coarse base always present (full loop)
+        const c = (rank - 0.5) / N;                        // this rank's reveal midpoint in resolve
+        let g = (resolve - c) * N; g = g < 0 ? 0 : g > 1 ? 1 : g;
+        gate[o.i] = g * g * (3 - 2 * g);
       });
+      // Renormalise (capped) so the coarse form is full-SIZE-ish and only gains DETAIL — a
+      // simple loop that grows wiggly, not a dot that grows into a drawing.
+      let ws = 0; for (let i = 0; i < N; i++) ws += G.harm[i].w * gate[i];
+      gnorm = 1 / Math.max(0.4, ws);
     }
     const bx = new Float64Array(steps + 1), by = new Float64Array(steps + 1);
     for (let s = 0; s <= steps; s++) {
@@ -652,6 +662,7 @@
         X += w * Math.cos(h.fx * t + h.px);
         Y += w * Math.sin(h.fy * t + h.py);
       }
+      X *= gnorm; Y *= gnorm;
       bx[s] = cx + (X * cr - Y * sr) * amp;
       by[s] = cy + (X * sr + Y * cr) * amp;
     }
@@ -698,13 +709,13 @@
       ctx.globalAlpha = 0.92;
       ctx.fill();
     } else {
-      // FUTURE — low resolution → high. The coarse loop (low harmonics, already traced
-      // above) fades in first, a touch soft; as detail gates in the curve gains its wiggles
-      // and the stroke tightens to the exact weight. Sharper and sharper until perfect, at
-      // the centre. The shape itself carries the resolve — no grain, no screen-space wander.
-      const resolve = 1 - nu;
-      ribbon(0, 1 + 0.5 * nu);
-      ctx.globalAlpha = Math.min(0.92, 0.16 + 0.84 * resolve);
+      // FUTURE — low resolution → high. The coarse loop (a simple full-size ellipse, low
+      // harmonics only) is drawn at full weight from the start and gains its wiggles as the
+      // higher harmonics arrive, the stroke tightening to the exact weight at the centre.
+      // No opacity fade and no grain — you simply watch it WIN DETAIL. A hair softer while
+      // coarse, so the sharpening still reads.
+      ribbon(0, 1 + 0.35 * nu);
+      ctx.globalAlpha = 0.9;
       ctx.fill();
     }
     ctx.globalAlpha = 1;
