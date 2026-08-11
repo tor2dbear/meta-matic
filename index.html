@@ -655,46 +655,52 @@
       half[s] = Math.max(0.28, base * (0.45 + 1.10 * m)) / 2;   // floor keeps thin parts from vanishing
     }
 
-    // ribbon = one filled quad per segment; nonzero winding merges the overlaps
-    ctx.beginPath();
-    for (let s = 0; s < steps; s++) {
-      let dx = bx[s+1] - bx[s], dy = by[s+1] - by[s];
-      const L = Math.hypot(dx, dy) || 1e-6; dx /= L; dy /= L;
-      const nx = -dy, ny = dx, wa = half[s], wb = half[s+1];
-      ctx.moveTo(bx[s] + nx*wa, by[s] + ny*wa);
-      ctx.lineTo(bx[s+1] + nx*wb, by[s+1] + ny*wb);
-      ctx.lineTo(bx[s+1] - nx*wb, by[s+1] - ny*wb);
-      ctx.lineTo(bx[s] - nx*wa, by[s] - ny*wa);
-    }
-    // round the joints only on large static renders (sub-pixel on small belt cells)
-    if (size >= 600) {
-      for (let s = 0; s <= steps; s++) { ctx.moveTo(bx[s] + half[s], by[s]); ctx.arc(bx[s], by[s], half[s], 0, TAU); }
-    }
     ctx.fillStyle = color;
+    // Helper: lay down the ribbon as one filled quad per segment (nonzero winding merges
+    // the overlaps). Optional per-point wander (jit) and width multiplier (wm) let the
+    // future draw the SAME line, only softer and wobblier while it is still resolving.
+    const ribbon = (jit, wm) => {
+      ctx.beginPath();
+      for (let s = 0; s < steps; s++) {
+        let ax = bx[s], ay = by[s], px = bx[s + 1], py = by[s + 1];
+        if (jit > 0.4) {
+          ax += (value2(s * 0.06, seed * 0.13 + 11) - 0.5) * 2 * jit;
+          ay += (value2(s * 0.06 + 40, seed * 0.13 + 63) - 0.5) * 2 * jit;
+          px += (value2((s + 1) * 0.06, seed * 0.13 + 11) - 0.5) * 2 * jit;
+          py += (value2((s + 1) * 0.06 + 40, seed * 0.13 + 63) - 0.5) * 2 * jit;
+        }
+        let dx = px - ax, dy = py - ay; const L = Math.hypot(dx, dy) || 1e-6; dx /= L; dy /= L;
+        const nx = -dy, ny = dx, wa = half[s] * wm, wb = half[s + 1] * wm;
+        ctx.moveTo(ax + nx * wa, ay + ny * wa); ctx.lineTo(px + nx * wb, py + ny * wb);
+        ctx.lineTo(px - nx * wb, py - ny * wb); ctx.lineTo(ax - nx * wa, ay - ny * wa);
+      }
+      if (size >= 600) { for (let s = 0; s <= steps; s++) { ctx.moveTo(bx[s] + half[s], by[s]); ctx.arc(bx[s], by[s], half[s], 0, TAU); } }
+    };
     if (nu <= 0.02) {
-      // locked / past — the clean line
+      // locked / past — the clean, exact line
+      ribbon(0, 1);
       ctx.globalAlpha = 0.92;
       ctx.fill();
     } else {
-      // FUTURE — diffusion as CONVERGENCE, not a grain layer over a fade. The work's own
-      // points begin scattered across the cell as a grain field and fly onto their place
-      // on the path as it resolves (a denoise), each on its own stagger; the clean ribbon
-      // only fades in once they have mostly landed. One mechanism, deterministic, cheap.
-      const resolve = 1 - nu;                                   // 0 = full noise .. 1 = locked
-      const ribbonA = resolve > 0.66 ? (resolve - 0.66) / 0.34 : 0;
-      if (ribbonA > 0) { ctx.globalAlpha = 0.92 * ribbonA * ribbonA; ctx.fill(); }
-      const M = Math.min(460, Math.round(size * 1.5)), halfS = size / 2;
-      ctx.globalAlpha = Math.min(0.62, 0.8 * nu);               // grain fades as the ribbon takes over
+      // FUTURE — a denoise: the drawing EMERGES from noise and SHARPENS in place, never
+      // assembled from travelling dots. Three things ease together as it nears now — the
+      // grain thins out where it stands, the line's wander shrinks, and its soft/fat stroke
+      // tightens to the crisp final weight. Blurry → sharper → perfect, exactly at the centre.
+      const resolve = 1 - nu, halfS = size / 2;
+      // (a) grain thinning IN PLACE — each speck persists until its own threshold, then is
+      //     simply gone (no motion), like noise being subtracted step by step.
+      const M = Math.min(440, Math.round(size * 1.5));
+      ctx.globalAlpha = Math.min(0.55, 0.72 * nu);
       for (let k = 0; k < M; k++) {
-        const hx = h2(k + 3, seed), hy = h2(k * 2 + 7, seed * 3 + 11);   // fixed grain home in the cell
-        const thr = h2(k * 3 + 5, seed + 19) * 0.55;                     // per-particle stagger
-        let ri = (resolve - thr) / (1 - thr); ri = ri < 0 ? 0 : ri; ri = ri * ri * (3 - 2 * ri);
-        const idx = (k / M) * steps, i0 = idx | 0, fr = idx - i0;        // its spot on the path
-        const fxp = bx[i0] + (bx[i0 + 1] - bx[i0]) * fr;
-        const fyp = by[i0] + (by[i0 + 1] - by[i0]) * fr;
-        const nxp = cx - halfS + hx * size, nyp = cy - halfS + hy * size;
-        ctx.fillRect(nxp + (fxp - nxp) * ri, nyp + (fyp - nyp) * ri, 1.4, 1.4);
+        if (resolve < h2(k * 3 + 5, seed + 19)) {
+          ctx.fillRect(cx - halfS + h2(k + 3, seed) * size, cy - halfS + h2(k * 2 + 7, seed * 3 + 11) * size, 1.4, 1.4);
+        }
       }
+      // (b) the line itself — wandering, fat and faint when noisy; exact, crisp and solid
+      //     as it resolves. This is what makes it "get sharper and sharper until perfect".
+      ribbon(size * 0.13 * nu * nu, 1 + 2.4 * nu);
+      ctx.globalAlpha = Math.min(0.9, 0.12 + 0.82 * resolve * resolve);
+      ctx.fill();
     }
     ctx.globalAlpha = 1;
     ctx.restore();
@@ -833,9 +839,11 @@
     const ph = (state.looking && !reduced) ? performance.now() * 0.00022 : (state.frozenSerial || 0);
     // Diffusion pipeline (f = 0 at now .. rising into the future). Everything resolves at
     // the CENTRE: noise clears (nu → 0), the identity morph settles (mp → 0), and the red
-    // frame only fades in over the last stretch before now (f < REDF), locking solid in
-    // the middle. NHZ is the noise horizon — full grain at f ≥ NHZ, fully formed at f = 0.
-    const NHZ = 1.0, REDF = 0.34;
+    // frame fades in AS the work locks and snaps solid in the middle. NHZ is the noise
+    // horizon — full grain at f ≥ NHZ, fully formed at f = 0. The resolve curve is biased
+    // (pow 1.8) so a work stays soft/forming for most of the approach and sharpens late,
+    // right at the signing point, rather than looking finished a plate early.
+    const NHZ = 1.15;
     // f is measured in SERIALS-ahead / SPAN, NOT screen fraction — so every plate sits
     // at the same phase on every screen size. The pipeline occupies ~SPAN plates to the
     // right of now; on a narrow phone the far (noisy) plates simply fall off the edge,
@@ -853,15 +861,14 @@
       const cx = centerScreen + (i * STRIDE) - (frac * STRIDE);
       if (cx < -STRIDE || cx > W + STRIDE) continue;
       const f = (serial - liveHeadF) / SPAN; // serials ahead of the live head / SPAN — 0 at now, <0 = past.
-      let u, v, nu = 0, redFade = 0;
+      let u, v, nu = 0;
       if (f <= 0) {                     // past + now — fixed, definite, locked
         ({ u, v } = coordFor(serial));
-      } else {                          // future — grain denoises + identity settles, all at now
-        nu = ss(f / NHZ);                                        // 1 at the horizon, 0 (locked) at now
-        const mp = ss(f / NHZ);                                  // identity morph, also 0 at now
+      } else {                          // future — the drawing emerges from noise and sharpens, all at now
+        const resolveF = Math.pow(ss((NHZ - f) / NHZ), 1.8);     // stays soft, sharpens late (at now)
+        nu = 1 - resolveF;                                       // 0 (locked) at now, 1 (noise) at horizon
         const off = (value1(serial * 1.7) - 0.5);                // fixed per-work direction (+/-0.5 serial)
-        ({ u, v } = coordFor(serial + off * mp));
-        redFade = ss((REDF - f) / REDF);                         // red frame appears only as it meets now
+        ({ u, v } = coordFor(serial + off * nu));                // identity settles as it resolves
       }
 
       // plate frame
@@ -886,14 +893,28 @@
       bctx.fillText("№ " + serial.toLocaleString("en-US"), cx, cy + half2 + 15);
       bctx.globalAlpha = 1;
 
-      // the red signing frame fades IN as the incoming work locks, then snaps to
-      // full solid at now (below) — a growing promise, then the definite click.
-      if (redFade > 0.01) {
-        bctx.strokeStyle = css("--signal");
-        bctx.globalAlpha = 0.6 * redFade;
-        bctx.lineWidth = 1.5;
-        bctx.strokeRect(cx - half2 - 4, cy - half2 - 4, plate + 8, plate + 8);
-        bctx.globalAlpha = 1;
+      // the signing frame belongs to the signing point, not to the plate: it only
+      // appears once a plate actually TOUCHES the centre line (|cx − centre| ≤ half a
+      // plate) and reaches full solid exactly when centred — no ring on the next work
+      // in line. A future work at the point is unresolved, so it gets a muted dashed
+      // "not yet" ring instead of the red one.
+      const prox = 1 - Math.min(1, Math.abs(cx - centerScreen) / half2);
+      if (prox > 0.001) {
+        if (serial <= Math.round(liveHeadF)) {
+          bctx.strokeStyle = css("--signal");
+          bctx.globalAlpha = prox;
+          bctx.lineWidth = 1 + 0.75 * prox;
+          bctx.strokeRect(cx - half2 - 4, cy - half2 - 4, plate + 8, plate + 8);
+          bctx.globalAlpha = 1;
+        } else {
+          bctx.strokeStyle = css("--muted");
+          bctx.globalAlpha = 0.7 * prox;
+          bctx.lineWidth = 1;
+          bctx.setLineDash([4, 4]);
+          bctx.strokeRect(cx - half2 - 4, cy - half2 - 4, plate + 8, plate + 8);
+          bctx.setLineDash([]);
+          bctx.globalAlpha = 1;
+        }
       }
 
       const d = Math.abs(cx - centerScreen);
@@ -901,26 +922,6 @@
     }
     bctx.textAlign = "left";
     state.centerSerial = bestSerial;
-
-    // highlight the plate at the signing point. Solid red only when it is actually
-    // signable (at or behind the live head); when you peek forward into the future the
-    // centred work is unresolved, so it gets a muted dashed "not yet" frame instead.
-    const cxC = centerScreen + ((bestSerial - base) * STRIDE) - (frac * STRIDE);
-    const half2 = plate / 2;
-    if (bestSerial <= Math.round(liveHeadF)) {
-      bctx.strokeStyle = css("--signal");
-      bctx.globalAlpha = 1;
-      bctx.lineWidth = 1.75;
-      bctx.strokeRect(cxC - half2 - 4, cy - half2 - 4, plate + 8, plate + 8);
-    } else {
-      bctx.strokeStyle = css("--muted");
-      bctx.globalAlpha = 0.7;
-      bctx.lineWidth = 1;
-      bctx.setLineDash([4, 4]);
-      bctx.strokeRect(cxC - half2 - 4, cy - half2 - 4, plate + 8, plate + 8);
-      bctx.setLineDash([]);
-      bctx.globalAlpha = 1;
-    }
   }
 
   /* ---------- render the space (latent map) ----------
@@ -1507,7 +1508,7 @@
   const statusT = document.getElementById("status-t");
 
   function liveNow() { return machineSerial(); }   // the machine's real present, always advancing
-  const REACH_F = 3.0, REACH_B = 1.1;              // rubberband reach — ahead (into noise) / behind
+  const REACH_F = 2.2, REACH_B = 1.1;              // rubberband reach — ahead (into noise) / behind
   let scrubOffset = 0;                             // springy peek offset in works (+ future, − past)
 
   // The pill is the live indicator + pause control. No parking: the belt is always
@@ -1556,9 +1557,10 @@
      the present is signable. A tap (no drag) still opens the work under the finger. */
   let ptrDown = false, scrubbing = false, startX = 0, beltW = 1, moved = 0;
   function rubber(n) {                              // n = normalised drag: + into future, − into past
-    // Forward is deliberately gentler than back — peeking into the noise should feel slow
-    // and resistive, not fling you far ahead; back stays a quick short glimpse.
-    if (n >= 0) return REACH_F * (1 - Math.exp(-n * 1.05));
+    // Forward has a firm wall: gentle at the start (smoothstep), then it flattens hard at
+    // REACH_F so a long drag can't fling you deep into endless noise — you reach the grain
+    // and stop. Back stays a quick short glimpse.
+    if (n >= 0) { const x = Math.min(1, n / 1.4); return REACH_F * x * x * (3 - 2 * x); }
     return -REACH_B * (1 - Math.exp(n * 1.8));
   }
   belt.addEventListener("pointerdown", e => {
