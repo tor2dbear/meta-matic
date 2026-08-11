@@ -706,38 +706,34 @@
     }
 
     ctx.fillStyle = color;
-    // Helper: lay down the ribbon as one filled quad per segment (nonzero winding merges
-    // the overlaps). Optional per-point wander (jit) and width multiplier (wm) let the
-    // future draw the SAME line, only softer and wobblier while it is still resolving.
-    const ribbon = (jit, wm) => {
+    ctx.strokeStyle = color;
+    const resolve = 1 - nu;
+    const alpha = 0.55 + 0.37 * resolve;          // → 0.92 at the lock, matching the cache
+    // The line is a cheap uniform STROKE during the morph; the variable-weight "ink" then eases
+    // in over the last stretch into the lock, becoming the full ink-pen ribbon exactly at the
+    // freeze (rendered once into the cache). ink 0 → 1 with an ease. The stroke is what lets the
+    // morph run all the way to the signing point without stuttering on complex works.
+    let ink = (resolve - 0.9) / 0.1; ink = ink < 0 ? 0 : ink > 1 ? 1 : ink; ink = ink * ink * (3 - 2 * ink);
+    if (ink < 0.02) {
+      ctx.globalAlpha = alpha;
+      ctx.lineJoin = "round"; ctx.lineCap = "round";
+      ctx.lineWidth = base * 0.5;                 // half-width base*0.25 == the ribbon's uniform baseline
+      ctx.beginPath();
+      ctx.moveTo(bx[0], by[0]);
+      for (let s = 1; s <= steps; s++) ctx.lineTo(bx[s], by[s]);
+      ctx.stroke();
+    } else {
+      const uni = base * 0.25;                    // baseline half-width — the ink pools out from here
       ctx.beginPath();
       for (let s = 0; s < steps; s++) {
-        let ax = bx[s], ay = by[s], px = bx[s + 1], py = by[s + 1];
-        if (jit > 0.4) {
-          ax += (value2(s * 0.06, seed * 0.13 + 11) - 0.5) * 2 * jit;
-          ay += (value2(s * 0.06 + 40, seed * 0.13 + 63) - 0.5) * 2 * jit;
-          px += (value2((s + 1) * 0.06, seed * 0.13 + 11) - 0.5) * 2 * jit;
-          py += (value2((s + 1) * 0.06 + 40, seed * 0.13 + 63) - 0.5) * 2 * jit;
-        }
-        let dx = px - ax, dy = py - ay; const L = Math.hypot(dx, dy) || 1e-6; dx /= L; dy /= L;
-        const nx = -dy, ny = dx, wa = half[s] * wm, wb = half[s + 1] * wm;
-        ctx.moveTo(ax + nx * wa, ay + ny * wa); ctx.lineTo(px + nx * wb, py + ny * wb);
-        ctx.lineTo(px - nx * wb, py - ny * wb); ctx.lineTo(ax - nx * wa, ay - ny * wa);
+        let dx = bx[s + 1] - bx[s], dy = by[s + 1] - by[s]; const L = Math.hypot(dx, dy) || 1e-6; dx /= L; dy /= L;
+        const nx = -dy, ny = dx;
+        const wa = uni + (half[s] - uni) * ink, wb = uni + (half[s + 1] - uni) * ink;
+        ctx.moveTo(bx[s] + nx * wa, by[s] + ny * wa); ctx.lineTo(bx[s + 1] + nx * wb, by[s + 1] + ny * wb);
+        ctx.lineTo(bx[s + 1] - nx * wb, by[s + 1] - ny * wb); ctx.lineTo(bx[s] - nx * wa, by[s] - ny * wa);
       }
       if (size >= 600) { for (let s = 0; s <= steps; s++) { ctx.moveTo(bx[s] + half[s], by[s]); ctx.arc(bx[s], by[s], half[s], 0, TAU); } }
-    };
-    if (nu <= 0.01) {
-      // locked / past — the clean, exact line
-      ribbon(0, 1);
-      ctx.globalAlpha = 0.92;
-      ctx.fill();
-    } else {
-      // FUTURE — a point far out that grows and gains detail toward now. Width and opacity
-      // both ease to the locked values (×1, 0.92) exactly at the freeze, so the last live
-      // frame already matches the cached bitmap: it lands with no pop, no shake.
-      const resolve = 1 - nu;
-      ribbon(0, 1 + 0.4 * nu);
-      ctx.globalAlpha = 0.55 + 0.37 * resolve;
+      ctx.globalAlpha = alpha;
       ctx.fill();
     }
     ctx.globalAlpha = 1;
@@ -917,9 +913,10 @@
       bctx.strokeRect(cx - half2, cy - half2, plate, plate);
 
       // work — locked plates are static, so blit them from the bitmap cache (the belt
-      // scrolls smoothly instead of re-tracing every ribbon each frame); future plates
-      // denoise live via the converging-grain path.
-      if (nu <= 0.01) {
+      // scrolls smoothly instead of re-tracing every frame); future plates morph LIVE right up
+      // to the signing point. The lock is EXACTLY at f = 0 (the line): there the ink sets in and
+      // the work freezes into the cache, in sync with the ring snap.
+      if (f <= 0 || DIFFUSION_OFF) {
         bctx.drawImage(lockedWork(serial, u, v, plate, ink), cx - half2, cy - half2, plate, plate);
       } else {
         drawWork(bctx, cx, cy, plate, u, v, ink, undefined, undefined, nu, ph, serial);
