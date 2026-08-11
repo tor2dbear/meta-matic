@@ -139,7 +139,9 @@
   /* The belt is a horizontal strip — give it a bounded height so it doesn't swim in
      empty space on tall screens (it used to fill the whole viewport). */
   .stage { position: relative; flex: 0 0 auto; height: clamp(320px, 46vh, 480px); background: var(--paper); overflow: hidden; }
-  #belt { display: block; width: 100%; height: 100%; cursor: pointer; }
+  /* pan-y: vertical swipes still scroll the page; horizontal drags are ours (scrub). */
+  #belt { display: block; width: 100%; height: 100%; cursor: grab; touch-action: pan-y; }
+  .stage.grabbing #belt { cursor: grabbing; }
 
   .sign-marker {
     position: absolute; top: 0; bottom: 0; left: 50%; width: 0;
@@ -183,7 +185,12 @@
     font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase;
     color: var(--muted); background: color-mix(in srgb, var(--surface) 82%, transparent);
     border: 1px solid var(--line); padding: 4px 9px;
+    font-family: inherit; cursor: pointer; -webkit-tap-highlight-color: transparent;
   }
+  .statuspill:hover { border-color: var(--muted); }
+  .statuspill:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
+  /* when parked/scrubbed the pill is the way back — nudge it visually */
+  .statuspill.away { border-color: color-mix(in srgb, var(--signal) 45%, var(--line)); }
   .statuspill .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--signal); }
   .statuspill.away { color: var(--signal); }
   .statuspill.away .dot { background: var(--signal); opacity: .5; }
@@ -401,12 +408,12 @@
 
 <div class="stage" id="stage">
   <canvas id="belt" aria-label="A conveyor belt of machine-drawn works that continuously morph into one another"></canvas>
-  <div class="statuspill" id="status"><span class="dot"></span><span id="status-t">Live</span></div>
+  <button class="statuspill" id="status" type="button" aria-label="Playback: live or parked. Click to return to now."><span class="dot"></span><span id="status-t">Live</span></button>
   <div class="sign-marker" aria-hidden="true"></div>
   <div class="seam" id="seam" role="status"></div>
   <div class="stage-hint hidden" id="hint">
     <b>The machine is running.</b><br>
-    Your screen shows a still frame — press <b>Look now</b> to fetch the present.
+    Your screen shows a still frame — tap <b>Still frame ▸ Live</b> (top-left) to fetch the present.
     It has been drawing in your absence.
   </div>
   <div class="focus" id="focus" hidden>
@@ -435,9 +442,8 @@
 <div class="console">
   <div class="controls">
     <div class="btn-row">
-      <button class="primary" id="look">Look away</button>
-      <button id="grab">Inspect &amp; sign</button>
-      <span class="rate-note mono">Rate: 1 work / 4 s · running since 2026</span>
+      <button class="primary" id="grab">Inspect &amp; sign</button>
+      <span class="rate-note mono">Drag the belt to scrub · Rate: 1 work / 4 s · since 2026</span>
     </div>
     <p class="walltext">
       In 1959 <b>Jean Tinguely</b> built a machine that drew abstract art on a conveyor belt —
@@ -594,11 +600,27 @@
 
   function genesFor(u, v, gen) { return (gen || GEN) === 1 ? genesV1(u, v) : genesV2(u, v); }
 
-  /* ---------- draw one work ---------- */
-  function drawWork(ctx, cx, cy, size, u, v, color, lwMul, gen) {
+  /* ---------- draw one work ----------
+     nu (0..1) = diffusion level: the belt renders future works (right of "now")
+     as unresolved — jittered + dusted + faded — collapsing to nu=0 (definite) at
+     the signing point. Omitted for inspect/ledger/export, which are always resolved. */
+  function drawWork(ctx, cx, cy, size, u, v, color, lwMul, gen, nu, ph, seed, lockT) {
+    nu = nu || 0; ph = ph || 0; seed = seed | 0;
     const G = genesFor(u, v, gen); // gen omitted -> current generator (live works)
     const amp = size * 0.44 * G.scale;
     const T = TAU * G.cycles;
+    // Size scales with resolve: full at now, dwindling to a POINT far into the future.
+    const ampF = nu > 0.01 ? amp * Math.pow(1 - nu, 1.15) : amp;
+    // A far work IS a point — draw it as a cheap dot and skip the whole trace/ribbon. This is
+    // both the intended look and what keeps the many far plates nearly free, so the budget goes
+    // to the few works actually resolving near lock.
+    if (nu > 0.01 && ampF < 7) {
+      ctx.fillStyle = color;
+      ctx.globalAlpha = 0.55 + 0.37 * (1 - nu);
+      ctx.beginPath(); ctx.arc(cx, cy, Math.max(1.1, ampF * 0.55), 0, TAU); ctx.fill();
+      ctx.globalAlpha = 1;
+      return;
+    }
     // Interactive draws (belt, inspect, ledger — all well under 600px) keep the
     // original 1050 steps, so the per-frame belt cost is unchanged. Only large
     // static renders like the 1400px PNG export scale up (with size × loops) to
@@ -606,9 +628,16 @@
     // Ribbon fill anti-aliases the edges, so fewer steps are needed than the old
     // stroke. The belt (small, animated) uses the fewest for 60fps; inspect/export
     // (larger, rendered once) scale up for crispness.
+    // Future plates are transient and re-filled EVERY frame while they resolve, so keep them
+    // cheap (a dense high-cycle scribble is an expensive fill) — they also trace fewer cycles
+    // when coarse, so 320 steps is plenty. Locked works are cached (drawn once) and past/
+    // inspect/export keep the high step count for crispness.
+    // Step count is FIXED per work (never per-frame-variable — that resampling was the old
+    // shake), and scales with COMPLEXITY so dense high-cycle works don't look faceted when
+    // locked. Same value live and cached, so the freeze stays soft (no sharpen-pop). This is
+    // where the "spend performance on complex forms" budget goes.
     const steps = size >= 600 ? Math.round(size * G.cycles * 0.6)
-                : size >= 240 ? 900
-                : 560;
+                : Math.round(Math.max(560, Math.min(1200, 360 + G.cycles * 70)));
     const cr = Math.cos(G.rot), sr = Math.sin(G.rot);
     ctx.save();
     // Clip each work to its own cell. A work's radius can reach ~0.62·size while
@@ -617,17 +646,49 @@
     ctx.beginPath();
     ctx.rect(cx - size / 2, cy - size / 2, size, size);
     ctx.clip();
-    // trace the epicycle into a point buffer
+    // trace the epicycle into a point buffer. A work is a Fourier sum (rotating circles);
+    // FUTURE works reveal it LOW → HIGH frequency: far out only the low-frequency harmonics
+    // are known (a coarse loop), and higher-frequency detail gates in as it resolves — the
+    // drawing's own spectrum sharpening, the way band-limited images go coarse → fine. This
+    // is the mathematically-native "unknown", not borrowed raster noise. resolve=1 → all
+    // harmonics (the exact final curve); locked/cached works skip the gate entirely.
+    let gate = null, gnorm = 1;
+    if (nu > 0.01) {
+      const N = G.harm.length, resolve = 1 - nu;
+      // Reveal the harmonics ONE AT A TIME, coarse (low-frequency) first: a clean loop, then a
+      // figure-eight, then finer wiggles. But FRONT-LOAD it into resolve [0, 0.6], while the
+      // work is still small/far — so the detail churn happens where it's tiny and unnoticed,
+      // and the visible near-lock phase is a STABLE shape simply growing to full. No shake.
+      const order = G.harm.map((h, i) => ({ i, fr: Math.max(Math.abs(h.fx), Math.abs(h.fy)) }))
+                          .sort((a, b) => a.fr - b.fr);
+      gate = new Array(N).fill(0);
+      order.forEach((o, rank) => {
+        if (rank <= 1) { gate[o.i] = 1; return; }          // base = 2 harmonics (a loop/figure-8, never a box)
+        const c = 0.45 + (rank - 2) * 0.18;                // finer detail reveals LATE — the morph is near lock
+        let g = (resolve - c) / 0.16; g = g < 0 ? 0 : g > 1 ? 1 : g;
+        gate[o.i] = g * g * (3 - 2 * g);
+      });
+      // Renormalise (capped) so the coarse form is full-SIZE-ish and only gains DETAIL — a
+      // simple loop that grows wiggly, not a dot that grows into a drawing.
+      let ws = 0; for (let i = 0; i < N; i++) ws += G.harm[i].w * gate[i];
+      gnorm = 1 / Math.max(0.4, ws);
+    }
+    // Full cycles throughout — no cycle-churn near lock. The old "tilted square" (a single
+    // harmonic filling its box over many cycles) is now simply invisible: far works are tiny
+    // points, so their box-fill never reads, and by the time a work is big enough to see, the
+    // harmonics are in and it's a real drawing.
     const bx = new Float64Array(steps + 1), by = new Float64Array(steps + 1);
     for (let s = 0; s <= steps; s++) {
       const t = (s / steps) * T;
       let X = 0, Y = 0;
-      for (const h of G.harm) {
-        X += h.w * Math.cos(h.fx * t + h.px);
-        Y += h.w * Math.sin(h.fy * t + h.py);
+      for (let hi = 0; hi < G.harm.length; hi++) {
+        const h = G.harm[hi], w = gate ? h.w * gate[hi] : h.w;
+        X += w * Math.cos(h.fx * t + h.px);
+        Y += w * Math.sin(h.fy * t + h.py);
       }
-      bx[s] = cx + (X * cr - Y * sr) * amp;
-      by[s] = cy + (X * sr + Y * cr) * amp;
+      X *= gnorm; Y *= gnorm;
+      bx[s] = cx + (X * cr - Y * sr) * ampF;
+      by[s] = cy + (X * sr + Y * cr) * ampF;
     }
 
     // Per-point line weight from local pen speed — thin where the pen moves fast,
@@ -645,24 +706,40 @@
       half[s] = Math.max(0.28, base * (0.45 + 1.10 * m)) / 2;   // floor keeps thin parts from vanishing
     }
 
-    // ribbon = one filled quad per segment; nonzero winding merges the overlaps
-    ctx.beginPath();
-    for (let s = 0; s < steps; s++) {
-      let dx = bx[s+1] - bx[s], dy = by[s+1] - by[s];
-      const L = Math.hypot(dx, dy) || 1e-6; dx /= L; dy /= L;
-      const nx = -dy, ny = dx, wa = half[s], wb = half[s+1];
-      ctx.moveTo(bx[s] + nx*wa, by[s] + ny*wa);
-      ctx.lineTo(bx[s+1] + nx*wb, by[s+1] + ny*wb);
-      ctx.lineTo(bx[s+1] - nx*wb, by[s+1] - ny*wb);
-      ctx.lineTo(bx[s] - nx*wa, by[s] - ny*wa);
-    }
-    // round the joints only on large static renders (sub-pixel on small belt cells)
-    if (size >= 600) {
-      for (let s = 0; s <= steps; s++) { ctx.moveTo(bx[s] + half[s], by[s]); ctx.arc(bx[s], by[s], half[s], 0, TAU); }
-    }
     ctx.fillStyle = color;
-    ctx.globalAlpha = 0.92;
-    ctx.fill();
+    ctx.strokeStyle = color;
+    const resolve = 1 - nu;
+    const alpha = 0.55 + 0.37 * resolve;          // → 0.92 at the lock, matching the cache
+    // The line is a cheap uniform STROKE during the morph; the variable-weight "ink" then eases
+    // in over the last stretch into the lock, becoming the full ink-pen ribbon exactly at the
+    // freeze (rendered once into the cache). ink 0 → 1 with an ease. The stroke is what lets the
+    // morph run all the way to the signing point without stuttering on complex works.
+    // ink 0 → 1 = uniform stroke → full variable-weight ribbon. Driven by the caller's screen-space
+    // lock value (so it sets right at the line); cache/inspect renders (no lockT) are the full ribbon.
+    const ink = lockT != null ? lockT : 1;
+    if (ink < 0.02) {
+      ctx.globalAlpha = alpha;
+      ctx.lineJoin = "round"; ctx.lineCap = "round";
+      ctx.lineWidth = base * 0.5;                 // half-width base*0.25 == the ribbon's uniform baseline
+      ctx.beginPath();
+      ctx.moveTo(bx[0], by[0]);
+      for (let s = 1; s <= steps; s++) ctx.lineTo(bx[s], by[s]);
+      ctx.stroke();
+    } else {
+      const uni = base * 0.25;                    // baseline half-width — the ink pools out from here
+      ctx.beginPath();
+      for (let s = 0; s < steps; s++) {
+        let dx = bx[s + 1] - bx[s], dy = by[s + 1] - by[s]; const L = Math.hypot(dx, dy) || 1e-6; dx /= L; dy /= L;
+        const nx = -dy, ny = dx;
+        const wa = uni + (half[s] - uni) * ink, wb = uni + (half[s + 1] - uni) * ink;
+        ctx.moveTo(bx[s] + nx * wa, by[s] + ny * wa); ctx.lineTo(bx[s + 1] + nx * wb, by[s + 1] + ny * wb);
+        ctx.lineTo(bx[s + 1] - nx * wb, by[s + 1] - ny * wb); ctx.lineTo(bx[s] - nx * wa, by[s] - ny * wa);
+      }
+      if (size >= 600) { for (let s = 0; s <= steps; s++) { ctx.moveTo(bx[s] + half[s], by[s]); ctx.arc(bx[s], by[s], half[s], 0, TAU); } }
+      ctx.globalAlpha = alpha;
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
     ctx.restore();
   }
 
@@ -703,9 +780,13 @@
   const seenBuf = []; // {g,u,v}
   const SEAM_EPS = 0.020;
   const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  // Comparison switch: append ?diffusion=off to render future works fully-formed (no
+  // low→high reveal) so the belt can be felt with and without the diffusion effect.
+  const DIFFUSION_OFF = new URLSearchParams(location.search).get("diffusion") === "off";
 
   /* ---------- canvas setup ---------- */
   const stage = document.getElementById("stage");
+  const signMarker = document.querySelector(".sign-marker");
   const belt = document.getElementById("belt");
   const bctx = belt.getContext("2d");
   const spaceband = document.getElementById("spaceband");
@@ -715,11 +796,33 @@
 
   function css(v) { return getComputedStyle(document.body).getPropertyValue(v).trim(); }
 
+  // Locked works never change, so render each once to an offscreen bitmap and blit it —
+  // the belt then scrolls by translating cached images instead of re-tracing every ribbon
+  // every frame (the thing that made it stutter under load). Keyed by serial; invalidated
+  // when the plate size (resize) or the ink colour (theme) changes.
+  const workCache = new Map();
+  let cacheInk = "";
+  function lockedWork(serial, u, v, size, color) {
+    if (color !== cacheInk) { workCache.clear(); cacheInk = color; }
+    let cv = workCache.get(serial);
+    if (!cv) {
+      cv = document.createElement("canvas");
+      cv.width = Math.round(size * dpr); cv.height = Math.round(size * dpr);
+      const c = cv.getContext("2d");
+      c.setTransform(dpr, 0, 0, dpr, 0, 0);
+      drawWork(c, size / 2, size / 2, size, u, v, color);   // nu = 0 → the clean ribbon
+      workCache.set(serial, cv);
+      if (workCache.size > 64) workCache.delete(workCache.keys().next().value);
+    }
+    return cv;
+  }
+
   function resize() {
     dpr = Math.min(window.devicePixelRatio || 1, 2);
     W = stage.clientWidth; H = stage.clientHeight;
     belt.width = Math.round(W * dpr); belt.height = Math.round(H * dpr);
     bctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    workCache.clear();   // plate size changes with the stage — cached bitmaps are now stale
     // the space is now a wide, unboxed band — size the backing store to its real box
     map.width = Math.round(map.clientWidth * dpr);
     map.height = Math.round(map.clientHeight * dpr);
@@ -767,12 +870,57 @@
     const centerScreen = W / 2;
     let bestD = Infinity, bestSerial = base;
 
+    // Two-phase future. Past & now are fixed and definite (signable). The future is
+    // unresolved in two sequential phases, not blended: BEYOND the commit point the
+    // coordinate itself is unknown → diffusion ("which point?"); INSIDE the commit
+    // point the coordinate is known but the work is still forming → morph (it wobbles
+    // through nearby points in the latent walk), settling to its definite form exactly
+    // at now. Turbulence/morph animate with wall-clock time; frozen on look-away and
+    // under reduced-motion.
+    const ph = (state.looking && !reduced) ? performance.now() * 0.00022 : (state.frozenSerial || 0);
+    // Diffusion pipeline (f = 0 at now .. rising into the future). Everything resolves at
+    // the CENTRE: noise clears (nu → 0), the identity morph settles (mp → 0), and the red
+    // frame fades in AS the work locks and snaps solid in the middle. NHZ is the noise
+    // horizon — full grain at f ≥ NHZ, fully formed at f = 0. The resolve curve is biased
+    // (pow 1.8) so a work stays soft/forming for most of the approach and sharpens late,
+    // right at the signing point, rather than looking finished a plate early.
+    const NHZ = 1.15;
+    // f is measured in SERIALS-ahead / SPAN, NOT screen fraction — so every plate sits
+    // at the same phase on every screen size. The pipeline occupies ~SPAN plates to the
+    // right of now; on a narrow phone the far (noisy) plates simply fall off the edge,
+    // so mobile misses the diffusion rather than cramming it into one plate.
+    const SPAN = 3;
+    const ss = x => { x = x < 0 ? 0 : x > 1 ? 1 : x; return x * x * (3 - 2 * x); };
+    // The diffusion pivots on the TRUE live head (real machine time), not the view
+    // centre. So when you scrub back into history, the works between your view and now
+    // are already drawn (serial <= liveHeadF → resolved), and only the genuine future
+    // stays noise. In plain live mode liveHeadF == the view centre, so nothing changes.
+    const liveHeadF = machineSerial();
     bctx.font = "10px ui-monospace, Menlo, monospace";
     for (let i = -half; i <= half; i++) {
       const serial = base + i;
       const cx = centerScreen + (i * STRIDE) - (frac * STRIDE);
       if (cx < -STRIDE || cx > W + STRIDE) continue;
+      const f = (serial - liveHeadF) / SPAN; // serials ahead of the live head / SPAN — 0 at now, <0 = past.
+      // Identity is ALWAYS the final one (coordFor(serial)) — no per-frame morph of which
+      // work it is, so the shape doesn't churn as it settles; it only grows and gains detail.
+      let nu = 0;
       const { u, v } = coordFor(serial);
+      if (f > 0 && !DIFFUSION_OFF) {    // future — starts tiny/coarse, resolves to full at now
+        nu = 1 - ss(Math.pow(Math.max(0, (NHZ - f) / NHZ), 2.2));   // clamp ≥0: on very wide viewports a plate can sit
+                                                       // >SPAN·NHZ ahead, and a negative base ^2.2 = NaN → the plate would
+                                                       // render fully resolved with a serial label. pow biases the change into the last stretch before lock
+                                                       // (more movement there); the outer ss keeps a soft tail so
+                                                       // it still eases — not slams — into the freeze
+      }
+
+      // The "lock" — ink set (stroke → ribbon) AND ring snap — happens over the last LOCKPX
+      // pixels into the LIVE HEAD (the present), not screen centre. In live view the head IS at
+      // centre so nothing changes; while scrubbing the head moves off-centre, and the lock (and
+      // the signing marker, below) follow it — so future works you peek at don't falsely lock.
+      const headDist = (serial - liveHeadF) * STRIDE;   // screen px from the present (= dxc in live view)
+      const LOCKPX = 22;
+      const lockT = ss(Math.max(0, Math.min(1, (LOCKPX - headDist) / LOCKPX)));
 
       // plate frame
       const half2 = plate / 2;
@@ -780,26 +928,63 @@
       bctx.lineWidth = 1;
       bctx.strokeRect(cx - half2, cy - half2, plate, plate);
 
-      // work
-      drawWork(bctx, cx, cy, plate, u, v, ink);
+      // work — locked plates are static, so blit them from the bitmap cache (the belt
+      // scrolls smoothly instead of re-tracing every frame); future plates morph LIVE right up
+      // to the signing point. The lock is EXACTLY at f = 0 (the line): there the ink sets in and
+      // the work freezes into the cache, in sync with the ring snap.
+      if (f <= 0 || DIFFUSION_OFF) {
+        bctx.drawImage(lockedWork(serial, u, v, plate, ink), cx - half2, cy - half2, plate, plate);
+      } else {
+        drawWork(bctx, cx, cy, plate, u, v, ink, undefined, undefined, nu, ph, serial, lockT);
+      }
 
-      // serial label
+      // serial label — a future work has no settled number yet, so it fades in
       bctx.fillStyle = muted;
       bctx.textAlign = "center";
+      bctx.globalAlpha = Math.max(0, 1 - 1.15 * nu);
       bctx.fillText("№ " + serial.toLocaleString("en-US"), cx, cy + half2 + 15);
+      bctx.globalAlpha = 1;
+
+      // the signing ring belongs to the signing point, not the plate. Rather than a linear
+      // fade (where the lock is invisible), it stays a FAINT thin hint on approach, then SNAPS
+      // to solid right at the point with a brief overshoot "click" — the frame pops a touch
+      // heavier and larger for the instant it locks, then settles to a solid ring and holds
+      // (no fade-out). A future work at the point is unresolved → a muted dashed "not yet" ring.
+      // The ring rides the LIVE HEAD (headDist), so it follows the present as you scrub — no
+      // blink at the hand-off (window is half a STRIDE). prox is 1 at the head, 0 at the hand-off.
+      const W2 = STRIDE / 2;
+      if (Math.abs(headDist) < W2) {
+        const prox = 1 - Math.abs(headDist) / W2;
+        if (serial <= Math.round(liveHeadF)) {
+          // The SNAP is the SAME lockT that drives the stroke→ribbon ink set, so the ring goes
+          // solid in lockstep with the line gaining its ink, in the last LOCKPX before the head.
+          // The click pop keys off the head itself (the freeze) for a crisp tiny pulse.
+          const snap = lockT;
+          const pop = ss((prox - 0.93) / 0.07);              // the click: a sharp, tiny pulse at the freeze
+          // faint hint on approach → snap; hold solid after, soft-cutting only at the very edge
+          const a = headDist > 0 ? Math.max(0.2 * prox, snap) : (prox > 0.3 ? 1 : prox / 0.3);
+          const grow = pop * 1.4;                            // a small outward nudge on the click (subtle)
+          bctx.strokeStyle = css("--signal");
+          bctx.globalAlpha = a;
+          bctx.lineWidth = 1.3 + 0.7 * snap + 0.9 * pop;
+          bctx.strokeRect(cx - half2 - 4 - grow, cy - half2 - 4 - grow, plate + 8 + 2 * grow, plate + 8 + 2 * grow);
+          bctx.globalAlpha = 1;
+        } else {
+          bctx.strokeStyle = css("--muted");
+          bctx.globalAlpha = 0.55 * prox;
+          bctx.lineWidth = 1;
+          bctx.setLineDash([4, 4]);
+          bctx.strokeRect(cx - half2 - 4, cy - half2 - 4, plate + 8, plate + 8);
+          bctx.setLineDash([]);
+          bctx.globalAlpha = 1;
+        }
+      }
 
       const d = Math.abs(cx - centerScreen);
       if (d < bestD) { bestD = d; bestSerial = serial; }
     }
     bctx.textAlign = "left";
     state.centerSerial = bestSerial;
-
-    // highlight the plate at the signing point
-    const cxC = centerScreen + ((bestSerial - base) * STRIDE) - (frac * STRIDE);
-    const half2 = plate / 2;
-    bctx.strokeStyle = css("--signal");
-    bctx.lineWidth = 1.5;
-    bctx.strokeRect(cxC - half2 - 4, cy - half2 - 4, plate + 8, plate + 8);
   }
 
   /* ---------- render the space (latent map) ----------
@@ -853,25 +1038,55 @@
     }
     mctx.globalAlpha = 1;
 
-    // the shared path — the machine's one trajectory, same for everyone. Faded to
-    // nothing at both ends: an endless line passing through the window, no start,
-    // no end (no edges · everything recurs). Kept low-contrast so it reads as
-    // ground, not figure — the belt above stays the hero.
-    const base = Math.floor(state.scroll / STRIDE);
-    const WMAP = 110;
+    // the shared path — the machine's one trajectory, same for everyone. The two
+    // arms are asymmetric on purpose: the PAST reaches far back (a long, settled
+    // line of what has been drawn), the FUTURE is only a short, steeply-fading stub
+    // — beyond commit the coordinate is unknown, so the map cannot honestly draw
+    // more than a glimpse ahead. Kept low-contrast so it reads as ground, not
+    // figure — the belt above stays the hero.
+    const headF = state.scroll / STRIDE;         // continuous live position
+    const PASTMAP = 110, FUTMAP = 6;             // long settled past, a bare glimpse ahead
     mctx.strokeStyle = muted;
     mctx.lineWidth = 1.2 * dpr;
     let prev = null;
-    for (let o = -WMAP; o <= WMAP; o++) {
-      const c = coordFor(base + o);
+    for (let s = Math.floor(headF) - PASTMAP; s <= Math.ceil(headF) + FUTMAP; s++) {
+      const c = coordFor(s);
       const px = X(c.u), py = Y(c.v);
       if (prev) {
-        mctx.globalAlpha = 0.85 * Math.pow(1 - Math.abs(o) / WMAP, 0.9);
+        const off = (s - 0.5) - headF;           // segment midpoint vs now (<0 past, >0 future)
+        const a = off <= 0
+          ? Math.pow(Math.max(0, 1 + off / PASTMAP), 0.9)
+          : Math.pow(Math.max(0, 1 - off / FUTMAP), 1.7);   // short + steep ahead
+        mctx.globalAlpha = 0.85 * a;
         mctx.beginPath(); mctx.moveTo(prev[0], prev[1]); mctx.lineTo(px, py); mctx.stroke();
       }
       prev = [px, py];
     }
     mctx.globalAlpha = 1;
+
+    // the possibility haze — beyond the bare certain glimpse the walk is unresolved:
+    // every point it *might* pass through hovers as a faint cloud that widens with
+    // distance (more uncertain the further ahead) and dissolves into nothing. As the
+    // head advances the near haze tightens back onto the settled line — the belt's
+    // diffusion, translated into the space. All possibilities, until just before.
+    {
+      const HZ = 24, STEP = 0.5, cell = Math.min(W, H);
+      mctx.fillStyle = muted;
+      for (let t = 1; t <= HZ; t++) {
+        const c = coordFor(headF + t * STEP);          // true future sample = cloud centre
+        const cx0 = X(c.u), cy0 = Y(c.v);
+        const grow = t / HZ;                            // uncertainty grows with distance
+        const spread = 2 * dpr + grow * cell * 0.08;    // widening cloud radius
+        const vis = 0.2 * Math.pow(1 - grow, 1.4);      // dissolves further out
+        for (let k = 0; k < 3; k++) {
+          const ang = h2(t * 5 + k, 7) * TAU;
+          const rad = Math.sqrt(h2(t * 5 + k + 3, 19)) * spread;   // sqrt → even fill
+          mctx.globalAlpha = vis;
+          mctx.fillRect(cx0 + Math.cos(ang) * rad - 0.7 * dpr, cy0 + Math.sin(ang) * rad - 0.7 * dpr, 1.5 * dpr, 1.5 * dpr);
+        }
+      }
+      mctx.globalAlpha = 1;
+    }
 
     // your signings — ultramarine marks. Draw the rings first, then the numbers
     // with a simple vertical declutter, so clustered or duplicate marks keep
@@ -910,7 +1125,10 @@
     // not "yours"); when you look away it shows the point you froze on. A full-span
     // crosshair locates it in the lattice and its coordinate is read out beside it —
     // the same value the header shows — tying the map to the readout. Both live.
-    const cc = coordFor(state.centerSerial);
+    // Sampled at the CONTINUOUS head (scroll/STRIDE), so the dot glides along the
+    // path instead of snapping between integer works; signing still snaps to a whole
+    // serial via centerSerial.
+    const cc = coordFor(headF);
     const nx = X(cc.u), ny = Y(cc.v);
     mctx.strokeStyle = signal; mctx.globalAlpha = 0.36; mctx.lineWidth = 1 * dpr;
     mctx.beginPath(); mctx.moveTo(0, ny); mctx.lineTo(W, ny); mctx.stroke();
@@ -1056,7 +1274,7 @@
     state.produced = Math.floor(machineSerial());
     el.produced.textContent = state.produced.toLocaleString("en-US");
     el.signed.textContent = state.signed.toLocaleString("en-US");
-    const c = coordFor(state.centerSerial);
+    const c = coordFor(state.scroll / STRIDE);   // continuous head — glides, matches the map crosshair
     el.coord.textContent = c.u.toFixed(3) + ", " + c.v.toFixed(3);
   }
 
@@ -1274,6 +1492,7 @@
   const fFp = document.getElementById("f-fp");
   const fSignedRow = document.getElementById("f-signed-row");
   let focusSerial = null;
+  let resumeLive = false;   // on close, resume live only if we were live before opening
   let signedReqSeq = 0; // guards against a stale /stats answer landing on a newer work
 
   // The gut-punch: how many others already signed this "unique" pick.
@@ -1288,9 +1507,10 @@
   }
 
   function openFocus(serial) {
+    serial = Math.min(serial, Math.floor(liveNow())); // never inspect/sign an unproduced future work
     focusSerial = serial;
-    if (reduced) state.frozenSerial = machineSerial();
-    else if (state.looking) setLooking(false);
+    if (reduced) { state.frozenSerial = machineSerial(); resumeLive = false; }
+    else { resumeLive = state.looking; if (state.looking) setLooking(false); }
     const c = coordFor(serial);
     fSerial.textContent = "№ " + serial.toLocaleString("en-US");
     fCoord.textContent = c.u.toFixed(4) + " , " + c.v.toFixed(4);
@@ -1330,8 +1550,10 @@
       state.frozenSerial = machineSerial();
       state.scroll = state.frozenSerial * STRIDE;
       renderBelt(); renderMap(); updateHUD();
+    } else if (resumeLive) {
+      setLooking(true, silent);   // was live before inspecting → resume the live belt
     } else {
-      setLooking(true, silent);
+      setStatus(false);           // was parked in history → stay parked, keep browsing
     }
   }
   document.getElementById("f-sign").addEventListener("click", () => {
@@ -1346,30 +1568,45 @@
 
   /* ---------- controls ---------- */
   const hint = document.getElementById("hint");
-  const lookBtn = document.getElementById("look");
   const statusEl = document.getElementById("status");
   const statusT = document.getElementById("status-t");
 
+  function liveNow() { return machineSerial(); }   // the machine's real present, always advancing
+  const REACH_F = 2.2, REACH_B = 1.1;              // rubberband reach — ahead (into noise) / behind
+  let scrubOffset = 0;                             // springy peek offset in works (+ future, − past)
+
+  // The pill is the live indicator + pause control. No parking: the belt is always
+  // anchored to now, so it only ever reads Live or Paused (or a reduced-motion still).
+  function updateLiveChip() {
+    if (reduced) {
+      statusT.textContent = state.looking ? "Live" : "Still frame";
+      statusEl.setAttribute("aria-label", "Playback: still frame. Click to fetch the present.");
+      return;
+    }
+    statusT.textContent = state.looking ? "Live" : "❚❚ Paused";
+    statusEl.setAttribute("aria-label", state.looking
+      ? "Playback: live. Click to pause here."
+      : "Playback: paused. Click to return to now.");
+  }
   function setStatus(live) {
     statusEl.classList.toggle("away", !live);
-    statusT.textContent = live ? "Live" : "Looking away";
+    updateLiveChip();
   }
   function flashMissed(missed) {
     if (missed <= 0) return;
-    seamEl.innerHTML = "⌛ YOU LOOKED AWAY · " + missed.toLocaleString("en-US") + " works passed without you";
+    seamEl.innerHTML = "⌛ " + missed.toLocaleString("en-US") + " works passed while you were away";
     seamEl.classList.add("on"); seamTimer = 2.8;
   }
 
-  // You can look away, but you cannot stop the machine. Resume = jump to now.
+  // You can pause or peek, but you cannot stop the machine. Resume = jump to now.
   function setLooking(live, silent) {
     if (live === state.looking) return;
     if (live) { if (!silent) flashMissed(Math.floor(machineSerial()) - Math.floor(state.frozenSerial)); }
     else state.frozenSerial = machineSerial();
     state.looking = live;
-    lookBtn.textContent = live ? "Look away" : "Look now";
     setStatus(live);
   }
-  // Reduced-motion: no autoplay. The button fetches a fresh still of "now".
+  // Reduced-motion: no autoplay. The pill fetches a fresh still of "now".
   function refreshNow() {
     const prev = Math.floor(state.frozenSerial);
     state.frozenSerial = machineSerial();
@@ -1379,14 +1616,67 @@
     flashMissed(Math.floor(state.frozenSerial) - prev);
   }
 
+  // The pill: pause here / resume live. Under reduced motion it fetches now.
+  statusEl.addEventListener("click", () => { reduced ? refreshNow() : setLooking(!state.looking); });
+
   document.getElementById("grab").addEventListener("click", () => openFocus(state.centerSerial));
-  belt.addEventListener("click", e => openFocus(serialAtX(e.clientX)));
-  if (reduced) {
-    lookBtn.textContent = "Look now";
-    lookBtn.addEventListener("click", refreshNow);
-  } else {
-    lookBtn.addEventListener("click", () => setLooking(!state.looking));
+
+  /* ---------- scrub: a springy rubberband peek, anchored to now ----------
+     Drag forward (left) to peek into the unresolved future — the noise field / diffusion,
+     and the red frame fading in as a work locks; drag back (right) for a short glimpse of
+     what just passed. On release the belt eases back to now — nothing is parked, and only
+     the present is signable. A tap (no drag) still opens the work under the finger. */
+  let ptrDown = false, scrubbing = false, startX = 0, beltW = 1, moved = 0;
+  function rubber(n) {                              // n = normalised drag: + into future, − into past
+    // Forward has a firm wall: gentle at the start (smoothstep), then it flattens hard at
+    // REACH_F so a long drag can't fling you deep into endless noise — you reach the grain
+    // and stop. Back stays a quick short glimpse.
+    if (n >= 0) { const x = Math.min(1, n / 1.4); return REACH_F * x * x * (3 - 2 * x); }
+    return -REACH_B * (1 - Math.exp(n * 1.8));
   }
+  belt.addEventListener("pointerdown", e => {
+    if (!focusEl.hidden) return;
+    ptrDown = true; scrubbing = false; startX = e.clientX; moved = 0;
+    beltW = stage.getBoundingClientRect().width || W;
+  });
+  belt.addEventListener("pointermove", e => {
+    if (!ptrDown) return;
+    const dx = e.clientX - startX;
+    if (Math.abs(dx) > moved) moved = Math.abs(dx);
+    if (!scrubbing) {
+      if (Math.abs(dx) < 6) return;               // below threshold — could still be a tap
+      scrubbing = true;
+      startX = e.clientX;                          // rebaseline so the grab doesn't jump
+      try { belt.setPointerCapture(e.pointerId); } catch (_) {}
+      stage.classList.add("grabbing");
+      return;
+    }
+    scrubOffset = rubber(-(e.clientX - startX) / (beltW * 0.5));  // drag left → +future, right → −past
+    if (reduced) { state.scroll = (state.frozenSerial + scrubOffset) * STRIDE; renderBelt(); renderMap(); updateHUD(); }
+  });
+  function endScrub(e) {
+    if (!ptrDown) return;
+    ptrDown = false;
+    if (!scrubbing) return;
+    scrubbing = false;
+    try { belt.releasePointerCapture(e.pointerId); } catch (_) {}
+    stage.classList.remove("grabbing");
+    // reduced motion: snap back instantly (no animation); otherwise the loop springs it back
+    if (reduced) { scrubOffset = 0; state.scroll = state.frozenSerial * STRIDE; renderBelt(); renderMap(); updateHUD(); }
+  }
+  belt.addEventListener("pointerup", endScrub);
+  belt.addEventListener("pointercancel", endScrub);
+  // Safety: a press that never crossed the drag threshold (so no pointer capture) and released
+  // off the belt leaves ptrDown stuck true, which would let a later hover-move ghost-scrub. Clear it.
+  window.addEventListener("pointerup", () => { if (!scrubbing) ptrDown = false; });
+
+  belt.addEventListener("click", e => {
+    if (moved > 6) { moved = 0; return; }         // that was a scrub, not a tap
+    const s = serialAtX(e.clientX);
+    if (s > Math.floor(liveNow())) return;        // the true future is unresolved — not signable (floor: the next serial isn't produced until now crosses it)
+    openFocus(s);
+  });
+
   window.addEventListener("keydown", e => {
     if (e.key === "Escape" && !focusEl.hidden) { closeFocus(false); return; }
     if (e.key === "Escape" && drawerEl.classList.contains("open")) { setDrawer(false); return; }
@@ -1403,16 +1693,32 @@
   }
 
   /* ---------- loop (motion only) ---------- */
+  // The space map changes slowly and lives below the belt. Render it at a reduced rate, and
+  // not at all while it is scrolled off-screen, so the belt keeps the whole frame budget for
+  // smooth motion (this is what was stealing frames when a complex work was drawing).
+  let mapVisible = true, mapAccum = 1;
+  if ("IntersectionObserver" in window) {
+    new IntersectionObserver(es => { mapVisible = es[es.length - 1].isIntersecting; }).observe(spaceband);
+  }
   let lastT = performance.now();
   function frame() {
     const now = performance.now();
     const dt = Math.min(0.05, (now - lastT) / 1000); lastT = now;
-    const viewSerial = state.looking ? machineSerial() : state.frozenSerial;
+    // spring the peek offset back to 0 whenever the finger isn't driving it
+    if (!scrubbing && scrubOffset !== 0) {
+      scrubOffset += (0 - scrubOffset) * Math.min(1, dt * 12);
+      if (Math.abs(scrubOffset) < 0.002) scrubOffset = 0;
+    }
+    const viewSerial = (state.looking ? machineSerial() : state.frozenSerial) + scrubOffset;
     state.scroll = viewSerial * STRIDE;
-    if (state.looking) advanceBookkeeping();
+    // The signing marker rides the present: while scrubbing, the live head moves off-centre by
+    // -scrubOffset·STRIDE, so slide the marker there — the signing point follows the scrub and
+    // springs back to centre on release.
+    signMarker.style.transform = scrubOffset ? "translateX(" + (-scrubOffset * STRIDE) + "px)" : "";
+    if (state.looking && Math.abs(scrubOffset) < 0.5) advanceBookkeeping();
     if (seamTimer > 0) { seamTimer -= dt; if (seamTimer <= 0) seamEl.classList.remove("on"); }
     renderBelt();
-    renderMap();
+    if (mapVisible) { mapAccum += dt; if (mapAccum >= 0.045) { renderMap(); mapAccum = 0; } }
     updateHUD();
     requestAnimationFrame(frame);
   }
