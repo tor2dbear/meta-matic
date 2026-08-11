@@ -28,22 +28,16 @@ Frågan är inte längre Tinguelys *"vad är konst när en maskin kan göra det?
 
 Allt är en enda självständig `index.html` — Canvas, inga beroenden, inget bygge.
 
-## Hosting (Cloudflare Pages)
+## Hosting (Cloudflare Workers Builds)
 
-Statisk sida, ingen byggprocess:
+Statisk sida — `index.html` plus assets (`og.png`, `robots.txt`, `sitemap.xml`) i
+repo-roten, ingen byggprocess. Repot är anslutet till **Cloudflare Workers Builds**:
+varje push bygger och deployar. Tally-API:t är en separat Worker under `api/`
+(route `api.tor2dbear.com/meta-matic/*`, se `api/wrangler.toml`).
 
-- **Framework preset:** None
-- **Build command:** *(tomt)*
-- **Output directory:** `/`
+## Vidare
 
-Anslut repot i Cloudflare Pages → varje push till `main` auto-deployar.
-
-## Vidare (den "skarpa" versionen)
-
-- En liten backend (Cloudflare Worker + KV / Supabase) som loggar **totala antalet
-  signerade** globalt — och antal signaturer per verk.
-- **Signera med plånbok** (`personal_sign`, off-chain, gratis) eller full **NFT-mint**
-  (on-chain, kostar gas) — där kedjans `totalSupply` blir den globala liggaren.
-  Ironin är poängen: att betala för att äga något som aldrig var original.
-
-Dessa kräver fristående hosting (som denna) — de fungerar inte i en sandlådad förhandsvisning.
+Backenden (Cloudflare Worker + KV för global signeringsräknare) och
+plånbokssignering (`personal_sign`, off-chain) är **byggda**. Nästa steg,
+öppna idéer och avfärdade spår lever i **[`NOTES.md`](NOTES.md)** — bland annat
+idén att beställa sitt signerade verk som en fysisk **print**.
