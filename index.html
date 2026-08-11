@@ -604,8 +604,8 @@
      nu (0..1) = diffusion level: the belt renders future works (right of "now")
      as unresolved — jittered + dusted + faded — collapsing to nu=0 (definite) at
      the signing point. Omitted for inspect/ledger/export, which are always resolved. */
-  function drawWork(ctx, cx, cy, size, u, v, color, lwMul, gen, nu, ph) {
-    nu = nu || 0; ph = ph || 0;
+  function drawWork(ctx, cx, cy, size, u, v, color, lwMul, gen, nu, ph, seed) {
+    nu = nu || 0; ph = ph || 0; seed = seed | 0;
     const G = genesFor(u, v, gen); // gen omitted -> current generator (live works)
     const amp = size * 0.44 * G.scale;
     const T = TAU * G.cycles;
@@ -671,20 +671,29 @@
       for (let s = 0; s <= steps; s++) { ctx.moveTo(bx[s] + half[s], by[s]); ctx.arc(bx[s], by[s], half[s], 0, TAU); }
     }
     ctx.fillStyle = color;
-    // Diffusion, properly: the future is a FIELD OF NOISE the work denoises out of.
-    // The clean line fades in as it resolves; a flickering grain field fills the cell
-    // and fades out — like a denoising model's "% denoised" frames. This reads as
-    // clearly different from morph (which is a clean line settling into its shape).
-    ctx.globalAlpha = 0.92 * (1 - Math.min(1, nu * 1.2));
-    if (nu < 0.9) ctx.fill();
-    if (nu > 0.02) {
-      const halfS = size / 2, gN = Math.round(size * size * 0.032 * nu);   // denser noise field
-      const seed = Math.floor(ph * 40);            // ~9 Hz flicker; static when frozen
-      const ux = (u * 997) | 0, vy = (v * 991) | 0;
-      ctx.globalAlpha = Math.min(0.7, 0.9 * nu);
-      for (let k = 0; k < gN; k++) {
-        const rx = h2(k * 2 + seed, ux), ry = h2(k * 2 + 1 + seed * 3, vy);
-        ctx.fillRect(cx - halfS + rx * size, cy - halfS + ry * size, 1.3, 1.3);
+    if (nu <= 0.02) {
+      // locked / past — the clean line
+      ctx.globalAlpha = 0.92;
+      ctx.fill();
+    } else {
+      // FUTURE — diffusion as CONVERGENCE, not a grain layer over a fade. The work's own
+      // points begin scattered across the cell as a grain field and fly onto their place
+      // on the path as it resolves (a denoise), each on its own stagger; the clean ribbon
+      // only fades in once they have mostly landed. One mechanism, deterministic, cheap.
+      const resolve = 1 - nu;                                   // 0 = full noise .. 1 = locked
+      const ribbonA = resolve > 0.66 ? (resolve - 0.66) / 0.34 : 0;
+      if (ribbonA > 0) { ctx.globalAlpha = 0.92 * ribbonA * ribbonA; ctx.fill(); }
+      const M = Math.min(460, Math.round(size * 1.5)), halfS = size / 2;
+      ctx.globalAlpha = Math.min(0.62, 0.8 * nu);               // grain fades as the ribbon takes over
+      for (let k = 0; k < M; k++) {
+        const hx = h2(k + 3, seed), hy = h2(k * 2 + 7, seed * 3 + 11);   // fixed grain home in the cell
+        const thr = h2(k * 3 + 5, seed + 19) * 0.55;                     // per-particle stagger
+        let ri = (resolve - thr) / (1 - thr); ri = ri < 0 ? 0 : ri; ri = ri * ri * (3 - 2 * ri);
+        const idx = (k / M) * steps, i0 = idx | 0, fr = idx - i0;        // its spot on the path
+        const fxp = bx[i0] + (bx[i0 + 1] - bx[i0]) * fr;
+        const fyp = by[i0] + (by[i0 + 1] - by[i0]) * fr;
+        const nxp = cx - halfS + hx * size, nyp = cy - halfS + hy * size;
+        ctx.fillRect(nxp + (fxp - nxp) * ri, nyp + (fyp - nyp) * ri, 1.4, 1.4);
       }
     }
     ctx.globalAlpha = 1;
@@ -740,11 +749,33 @@
 
   function css(v) { return getComputedStyle(document.body).getPropertyValue(v).trim(); }
 
+  // Locked works never change, so render each once to an offscreen bitmap and blit it —
+  // the belt then scrolls by translating cached images instead of re-tracing every ribbon
+  // every frame (the thing that made it stutter under load). Keyed by serial; invalidated
+  // when the plate size (resize) or the ink colour (theme) changes.
+  const workCache = new Map();
+  let cacheInk = "";
+  function lockedWork(serial, u, v, size, color) {
+    if (color !== cacheInk) { workCache.clear(); cacheInk = color; }
+    let cv = workCache.get(serial);
+    if (!cv) {
+      cv = document.createElement("canvas");
+      cv.width = Math.round(size * dpr); cv.height = Math.round(size * dpr);
+      const c = cv.getContext("2d");
+      c.setTransform(dpr, 0, 0, dpr, 0, 0);
+      drawWork(c, size / 2, size / 2, size, u, v, color);   // nu = 0 → the clean ribbon
+      workCache.set(serial, cv);
+      if (workCache.size > 64) workCache.delete(workCache.keys().next().value);
+    }
+    return cv;
+  }
+
   function resize() {
     dpr = Math.min(window.devicePixelRatio || 1, 2);
     W = stage.clientWidth; H = stage.clientHeight;
     belt.width = Math.round(W * dpr); belt.height = Math.round(H * dpr);
     bctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    workCache.clear();   // plate size changes with the stage — cached bitmaps are now stale
     // the space is now a wide, unboxed band — size the backing store to its real box
     map.width = Math.round(map.clientWidth * dpr);
     map.height = Math.round(map.clientHeight * dpr);
@@ -800,12 +831,11 @@
     // at now. Turbulence/morph animate with wall-clock time; frozen on look-away and
     // under reduced-motion.
     const ph = (state.looking && !reduced) ? performance.now() * 0.00022 : (state.frozenSerial || 0);
-    // Diffusion pipeline thresholds (f = 0 at now .. 1 at right edge). The two phases
-    // are SEQUENTIAL, not overlapping: noise fades out over [NOISE0, NOISE1], and the
-    // morph (committed offset) only begins where the noise has cleared — MORPH1 == NOISE0.
-    // So a work first denoises, THEN eases in toward its final self, settling (locked) at
-    // LOCK, just before the signing point / red frame.
-    const NOISE0 = 0.42, NOISE1 = 0.82, LOCK = 0.12, MORPH1 = 0.42;
+    // Diffusion pipeline (f = 0 at now .. rising into the future). Everything resolves at
+    // the CENTRE: noise clears (nu → 0), the identity morph settles (mp → 0), and the red
+    // frame only fades in over the last stretch before now (f < REDF), locking solid in
+    // the middle. NHZ is the noise horizon — full grain at f ≥ NHZ, fully formed at f = 0.
+    const NHZ = 1.0, REDF = 0.34;
     // f is measured in SERIALS-ahead / SPAN, NOT screen fraction — so every plate sits
     // at the same phase on every screen size. The pipeline occupies ~SPAN plates to the
     // right of now; on a narrow phone the far (noisy) plates simply fall off the edge,
@@ -826,12 +856,12 @@
       let u, v, nu = 0, redFade = 0;
       if (f <= 0) {                     // past + now — fixed, definite, locked
         ({ u, v } = coordFor(serial));
-      } else {                          // future — noise → morph (ease-in) → locked
-        nu = ss((f - NOISE0) / (NOISE1 - NOISE0));               // noise field; denoises approaching now
-        const mp = ss((f - LOCK) / (MORPH1 - LOCK));             // committed offset, eased to 0 (locked)
+      } else {                          // future — grain denoises + identity settles, all at now
+        nu = ss(f / NHZ);                                        // 1 at the horizon, 0 (locked) at now
+        const mp = ss(f / NHZ);                                  // identity morph, also 0 at now
         const off = (value1(serial * 1.7) - 0.5);                // fixed per-work direction (+/-0.5 serial)
         ({ u, v } = coordFor(serial + off * mp));
-        redFade = ss((MORPH1 - f) / MORPH1);                     // red frame fades in as it locks toward now
+        redFade = ss((REDF - f) / REDF);                         // red frame appears only as it meets now
       }
 
       // plate frame
@@ -840,8 +870,14 @@
       bctx.lineWidth = 1;
       bctx.strokeRect(cx - half2, cy - half2, plate, plate);
 
-      // work — future plates render as diffusion, collapsing to definite at now
-      drawWork(bctx, cx, cy, plate, u, v, ink, undefined, undefined, nu, ph);
+      // work — locked plates are static, so blit them from the bitmap cache (the belt
+      // scrolls smoothly instead of re-tracing every ribbon each frame); future plates
+      // denoise live via the converging-grain path.
+      if (nu <= 0.02) {
+        bctx.drawImage(lockedWork(serial, u, v, plate, ink), cx - half2, cy - half2, plate, plate);
+      } else {
+        drawWork(bctx, cx, cy, plate, u, v, ink, undefined, undefined, nu, ph, serial);
+      }
 
       // serial label — a future work has no settled number yet, so it fades in
       bctx.fillStyle = muted;
@@ -1471,7 +1507,7 @@
   const statusT = document.getElementById("status-t");
 
   function liveNow() { return machineSerial(); }   // the machine's real present, always advancing
-  const REACH_F = 3.6, REACH_B = 1.1;              // rubberband reach — ahead (into noise) / behind
+  const REACH_F = 3.0, REACH_B = 1.1;              // rubberband reach — ahead (into noise) / behind
   let scrubOffset = 0;                             // springy peek offset in works (+ future, − past)
 
   // The pill is the live indicator + pause control. No parking: the belt is always
@@ -1520,9 +1556,10 @@
      the present is signable. A tap (no drag) still opens the work under the finger. */
   let ptrDown = false, scrubbing = false, startX = 0, beltW = 1, moved = 0;
   function rubber(n) {                              // n = normalised drag: + into future, − into past
-    const m = n >= 0 ? REACH_F : REACH_B;
-    const s = n >= 0 ? 1 : -1;
-    return s * m * (1 - Math.exp(-Math.abs(n) * 1.8));   // ~1:1 at first, then asymptotes to the cap
+    // Forward is deliberately gentler than back — peeking into the noise should feel slow
+    // and resistive, not fling you far ahead; back stays a quick short glimpse.
+    if (n >= 0) return REACH_F * (1 - Math.exp(-n * 1.05));
+    return -REACH_B * (1 - Math.exp(n * 1.8));
   }
   belt.addEventListener("pointerdown", e => {
     if (!focusEl.hidden) return;
