@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://meta-matic.tor2dbear.com/sitemap.xml
