@@ -620,9 +620,12 @@
     // cheap (a dense high-cycle scribble is an expensive fill) — they also trace fewer cycles
     // when coarse, so 320 steps is plenty. Locked works are cached (drawn once) and past/
     // inspect/export keep the high step count for crispness.
+    // Future step count RAMPS with resolve: tiny far works need few (cheap), and by lock it
+    // reaches the cached value so the last live frames already match the frozen bitmap — no
+    // shimmer while settling, no crisp "pop" at the freeze. Locked/frozen render once at 560.
     const steps = size >= 600 ? Math.round(size * G.cycles * 0.6)
-                : nu > 0.02 ? 320    // future: transient, redrawn every frame → cheap
-                : 900;               // locked/frozen: rendered ONCE into the cache → full quality
+                : nu > 0.01 ? Math.round(260 + 300 * (1 - nu))
+                : 560;
     const cr = Math.cos(G.rot), sr = Math.sin(G.rot);
     ctx.save();
     // Clip each work to its own cell. A work's radius can reach ~0.62·size while
@@ -638,18 +641,19 @@
     // is the mathematically-native "unknown", not borrowed raster noise. resolve=1 → all
     // harmonics (the exact final curve); locked/cached works skip the gate entirely.
     let gate = null, gnorm = 1;
-    if (nu > 0.02) {
+    if (nu > 0.01) {
       const N = G.harm.length, resolve = 1 - nu;
-      // Reveal the harmonics ONE AT A TIME, coarse (low-frequency) first: a clean loop, then
-      // a figure-eight, then finer wiggles, up to the full curve. That's the "low resolution
-      // → high" — you watch it win detail, not opacity.
+      // Reveal the harmonics ONE AT A TIME, coarse (low-frequency) first: a clean loop, then a
+      // figure-eight, then finer wiggles. But FRONT-LOAD it into resolve [0, 0.6], while the
+      // work is still small/far — so the detail churn happens where it's tiny and unnoticed,
+      // and the visible near-lock phase is a STABLE shape simply growing to full. No shake.
       const order = G.harm.map((h, i) => ({ i, fr: Math.max(Math.abs(h.fx), Math.abs(h.fy)) }))
                           .sort((a, b) => a.fr - b.fr);
       gate = new Array(N).fill(0);
       order.forEach((o, rank) => {
         if (rank === 0) { gate[o.i] = 1; return; }        // coarse base always present (full loop)
-        const c = (rank - 0.5) / N;                        // this rank's reveal midpoint in resolve
-        let g = (resolve - c) * N; g = g < 0 ? 0 : g > 1 ? 1 : g;
+        const c = (rank / N) * 0.55;                       // reveal midpoint, packed into the far region
+        let g = (resolve - c) / 0.18; g = g < 0 ? 0 : g > 1 ? 1 : g;
         gate[o.i] = g * g * (3 - 2 * g);
       });
       // Renormalise (capped) so the coarse form is full-SIZE-ish and only gains DETAIL — a
@@ -662,14 +666,13 @@
     // and gains detail as it nears now. Tiny far works are also nearly free to draw, which
     // is what keeps a complex work from stuttering while it's still out there resolving.
     const ampF = amp * Math.pow(1 - nu, 0.85);
-    // Trace FEWER cycles while coarse: a single clean loop, not the full multi-cycle Lissajous
-    // that fills its bounding box. That box-fill is what read as a static "tilted square" and
-    // produced the moiré. More cycles draw in as it resolves, so the pen keeps working — more
-    // dynamic — and every early state is a distinct loop, not the same filled box.
-    const Teff = nu > 0.02 ? TAU * (1.2 + (G.cycles - 1.2) * (1 - nu)) : T;
+    // Full cycles throughout — no cycle-churn near lock. The old "tilted square" (a single
+    // harmonic filling its box over many cycles) is now simply invisible: far works are tiny
+    // points, so their box-fill never reads, and by the time a work is big enough to see, the
+    // harmonics are in and it's a real drawing.
     const bx = new Float64Array(steps + 1), by = new Float64Array(steps + 1);
     for (let s = 0; s <= steps; s++) {
-      const t = (s / steps) * Teff;
+      const t = (s / steps) * T;
       let X = 0, Y = 0;
       for (let hi = 0; hi < G.harm.length; hi++) {
         const h = G.harm[hi], w = gate ? h.w * gate[hi] : h.w;
@@ -717,20 +720,18 @@
       }
       if (size >= 600) { for (let s = 0; s <= steps; s++) { ctx.moveTo(bx[s] + half[s], by[s]); ctx.arc(bx[s], by[s], half[s], 0, TAU); } }
     };
-    if (nu <= 0.02) {
+    if (nu <= 0.01) {
       // locked / past — the clean, exact line
       ribbon(0, 1);
       ctx.globalAlpha = 0.92;
       ctx.fill();
     } else {
-      // FUTURE — low resolution → high. A simple loop (low harmonics) that gains its wiggles
-      // as higher harmonics arrive, sharpening to the exact curve at now. While coarse it is
-      // a touch smaller, a touch softer (a resolve-scaled blur) and a touch fainter — this
-      // dissolves the moiré that a simple curve makes when traced over many cycles. All three
-      // ease to zero by the centre, so it lands crisp and exact.
+      // FUTURE — a point far out that grows and gains detail toward now. Width and opacity
+      // both ease to the locked values (×1, 0.92) exactly at the freeze, so the last live
+      // frame already matches the cached bitmap: it lands with no pop, no shake.
       const resolve = 1 - nu;
-      ribbon(0, 1 + 0.5 * nu);
-      ctx.globalAlpha = 0.62 + 0.3 * resolve;
+      ribbon(0, 1 + 0.4 * nu);
+      ctx.globalAlpha = 0.55 + 0.37 * resolve;
       ctx.fill();
     }
     ctx.globalAlpha = 1;
@@ -895,14 +896,12 @@
       const cx = centerScreen + (i * STRIDE) - (frac * STRIDE);
       if (cx < -STRIDE || cx > W + STRIDE) continue;
       const f = (serial - liveHeadF) / SPAN; // serials ahead of the live head / SPAN — 0 at now, <0 = past.
-      let u, v, nu = 0;
-      if (f <= 0 || DIFFUSION_OFF) {    // past + now (or diffusion disabled) — fully-formed, locked
-        ({ u, v } = coordFor(serial));
-      } else {                          // future — the drawing emerges from noise and sharpens, all at now
-        const resolveF = Math.pow(ss((NHZ - f) / NHZ), 1.8);     // stays soft, sharpens late (at now)
-        nu = 1 - resolveF;                                       // 0 (locked) at now, 1 (noise) at horizon
-        const off = (value1(serial * 1.7) - 0.5);                // fixed per-work direction (+/-0.5 serial)
-        ({ u, v } = coordFor(serial + off * nu));                // identity settles as it resolves
+      // Identity is ALWAYS the final one (coordFor(serial)) — no per-frame morph of which
+      // work it is, so the shape doesn't churn as it settles; it only grows and gains detail.
+      let nu = 0;
+      const { u, v } = coordFor(serial);
+      if (f > 0 && !DIFFUSION_OFF) {    // future — starts tiny/coarse, resolves to full at now
+        nu = 1 - Math.pow(ss((NHZ - f) / NHZ), 1.8);   // 0 (locked) at now, 1 at the horizon
       }
 
       // plate frame
@@ -914,7 +913,7 @@
       // work — locked plates are static, so blit them from the bitmap cache (the belt
       // scrolls smoothly instead of re-tracing every ribbon each frame); future plates
       // denoise live via the converging-grain path.
-      if (nu <= 0.02) {
+      if (nu <= 0.01) {
         bctx.drawImage(lockedWork(serial, u, v, plate, ink), cx - half2, cy - half2, plate, plate);
       } else {
         drawWork(bctx, cx, cy, plate, u, v, ink, undefined, undefined, nu, ph, serial);
