@@ -1554,20 +1554,35 @@
     a.href = url; a.download = filename; document.body.appendChild(a); a.click();
     a.remove(); setTimeout(() => URL.revokeObjectURL(url), 4000);
   }
+  function dataURLToBlob(u) {
+    const parts = u.split(","), mime = (parts[0].match(/:(.*?);/) || [])[1] || "image/png";
+    const bin = atob(parts[1]), arr = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+    return new Blob([arr], { type: mime });
+  }
+  const isIOS = /iP(hone|ad|od)/.test(navigator.userAgent) ||
+    (navigator.platform === "MacIntel" && (navigator.maxTouchPoints || 0) > 1);
   function downloadCanvas(cv, filename) {
-    cv.toBlob(async blob => {
-      if (!blob) return;
-      const dl = window.claude && window.claude.downloads;
-      if (dl && typeof dl.save === "function") {
-        try { await dl.save({ filename, data: blob }); }
-        catch (err) {
-          if (err && err.code === "declined") return;          // viewer said no
-          try { anchorDownload(blob, filename); } catch (e2) {} // best-effort fallback
-        }
-      } else {
-        anchorDownload(blob, filename); // standalone / outside the Artifact sandbox
-      }
-    }, "image/png");
+    // Build the blob SYNCHRONOUSLY, inside the click: Safari drops the user
+    // activation across toBlob's async callback (silently blocking the save), and
+    // iOS Safari ignores <a download> entirely — so a plain anchor does nothing
+    // there. On iOS use the Web Share sheet (save to Photos/Files); anchor elsewhere.
+    let blob;
+    try { blob = dataURLToBlob(cv.toDataURL("image/png")); } catch (e) { return; }
+    const dl = window.claude && window.claude.downloads;   // Claude Artifact sandbox
+    if (dl && typeof dl.save === "function") {
+      dl.save({ filename, data: blob }).catch(err => {
+        if (err && err.code === "declined") return;
+        try { anchorDownload(blob, filename); } catch (e2) {}
+      });
+      return;
+    }
+    const file = new File([blob], filename, { type: "image/png" });
+    if (isIOS && navigator.canShare && navigator.canShare({ files: [file] })) {
+      navigator.share({ files: [file], title: filename }).catch(() => {}); // → Save to Photos / Files
+      return;
+    }
+    anchorDownload(blob, filename); // desktop: a real download
   }
   function saveImage(uid) {
     const entry = state.minted.find(e => e.uid === uid);
