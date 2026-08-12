@@ -57,15 +57,29 @@ async function hmacHex(secret, msg) {
   const sig = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(msg));
   return [...new Uint8Array(sig)].map(b => b.toString(16).padStart(2, "0")).join("");
 }
+function timingEqual(a, b) {
+  if (a.length !== b.length) return false;
+  let diff = 0; for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return diff === 0;
+}
 async function verifyStripe(raw, header, secret) {
-  const parts = Object.fromEntries((header || "").split(",").map(p => p.split("=")));
-  if (!parts.t || !parts.v1) throw new Error("bad signature header");
-  if (Math.abs(Date.now() / 1000 - Number(parts.t)) > 300) throw new Error("timestamp out of tolerance");
-  const expected = await hmacHex(secret, parts.t + "." + raw);
-  // constant-time-ish compare
-  if (expected.length !== parts.v1.length) throw new Error("signature mismatch");
-  let diff = 0; for (let i = 0; i < expected.length; i++) diff |= expected.charCodeAt(i) ^ parts.v1.charCodeAt(i);
-  if (diff !== 0) throw new Error("signature mismatch");
+  // The signature header is a comma-separated list of key=value pairs. There is one
+  // `t` (timestamp) but potentially MANY `v1` entries — Stripe sends one per active
+  // signing secret during a webhook-secret rotation. We must accept if ANY of them
+  // matches, or valid webhooks are rejected mid-rotation (and `=` can appear inside a
+  // value, so split on the FIRST `=` only).
+  let t = null; const v1s = [];
+  for (const part of (header || "").split(",")) {
+    const i = part.indexOf("=");
+    if (i < 0) continue;
+    const k = part.slice(0, i), val = part.slice(i + 1);
+    if (k === "t") t = val;
+    else if (k === "v1") v1s.push(val);
+  }
+  if (!t || !v1s.length) throw new Error("bad signature header");
+  if (Math.abs(Date.now() / 1000 - Number(t)) > 300) throw new Error("timestamp out of tolerance");
+  const expected = await hmacHex(secret, t + "." + raw);
+  if (!v1s.some(v1 => timingEqual(expected, v1))) throw new Error("signature mismatch");
   return JSON.parse(raw);
 }
 
@@ -176,8 +190,21 @@ export async function handlePrintShop(path, request, env, ctx) {
       const cust = s.customer_details || {};
       const addr = ship.address || {};
       if (!addr.line1 || !addr.country) return new Response("ok (no shipping address)", { status: 200 }); // never order a broken shipment
+      // Exactly-once fulfilment. The Stripe session id is unique per checkout, so it is
+      // the right idempotency key: the SAME work printed by two buyers is two sessions
+      // (two orders, intended), while a Stripe RETRY of one payment repeats the same
+      // session id. Claim it in D1 first — the PRIMARY KEY makes the INSERT atomic, so a
+      // duplicate means this session is already being/been fulfilled: ack and stop.
+      try {
+        await env.DB.prepare("INSERT INTO print_orders (session, serial, ts) VALUES (?, ?, ?)")
+          .bind(s.id, String(m.serial || ""), Math.floor(Date.now() / 1000)).run();
+      } catch (e) {
+        return new Response("ok (already fulfilled)", { status: 200 });
+      }
       const order = {
-        merchantReference: "meta-matic-" + (m.serial || ""),
+        // Unique per checkout, so Prodigi also dedupes a retry on it — a second backstop
+        // to the D1 guard for the ambiguous "order created but response lost" failure.
+        merchantReference: s.id,
         shippingMethod: env.PRODIGI_SHIPPING || "Standard",
         recipient: {
           name: ship.name || cust.name || "Customer",
@@ -195,10 +222,15 @@ export async function handlePrintShop(path, request, env, ctx) {
         }],
         metadata: { serial: m.serial, stripeSession: s.id },
       };
-      // If Prodigi is briefly unreachable, 500 so Stripe retries; creation is
-      // idempotent via merchantReference so a retry won't double-order.
+      // If Prodigi is briefly unreachable, release the idempotency claim and 500 so
+      // Stripe retries; the retry re-INSERTs and re-orders. If Prodigi actually DID
+      // create the order but the response was lost, the merchantReference dedupe above
+      // stops the retry from double-ordering.
       try { await prodigi(env, "Orders", order); }
-      catch (e) { return new Response("order deferred: " + (e.message || e), { status: 500 }); }
+      catch (e) {
+        try { await env.DB.prepare("DELETE FROM print_orders WHERE session = ?").bind(s.id).run(); } catch {}
+        return new Response("order deferred: " + (e.message || e), { status: 500 });
+      }
     }
     return new Response("ok", { status: 200 });
   }

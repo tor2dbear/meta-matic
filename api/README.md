@@ -157,5 +157,10 @@ buffer absorbs FX/rounding. Tune the three `PRICE_*` vars in `wrangler.toml`.
   storage; add a per-IP limit with the `/claim` rate-limit work if needed.
 - **Import duties/VAT** on international orders are the recipient's (note shown at
   checkout). At volume, add Stripe Tax (pay-per-use) or restrict `allowed_countries`.
-- **Idempotency:** orders use `merchantReference = meta-matic-<serial>`; a webhook
-  retry won't duplicate if Prodigi dedupes on it (confirm in your account settings).
+- **Idempotency:** exactly-once fulfilment is enforced by D1. The webhook claims the
+  Stripe **session id** in `print_orders` (PRIMARY KEY) before ordering, so a Stripe
+  retry of the same payment fails the INSERT and is ack'd without a second order.
+  `merchantReference` is set to that same session id as a Prodigi-side backstop for the
+  "order created but response lost" case. Buying the same work twice is two sessions →
+  two orders (intended). The `print_orders` table ships in `schema.sql` — re-run it
+  (`npx wrangler d1 execute meta-matic-certs --remote --file=schema.sql`) after updating.
