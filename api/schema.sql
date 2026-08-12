@@ -32,18 +32,16 @@ CREATE TABLE IF NOT EXISTS print_orders (
   status   TEXT NOT NULL DEFAULT 'pending',-- 'pending' | 'done'
   ts       INTEGER NOT NULL                -- unix seconds
 );
--- Migration for a print_orders that was created BEFORE `status` existed: CREATE TABLE
--- IF NOT EXISTS above is a no-op on an existing table, so it would NOT add the column,
--- and every webhook INSERT would then fail with "no column named status". This ALTER
--- adds it. On a fresh table (already has status) SQLite errors "duplicate column name" —
--- harmless: it means you're already migrated. Run it only if you created the table from
--- an earlier build; skip/ignore the error otherwise. (Kept separate, not a destructive
--- DROP, so re-running the schema never wipes fulfilment history.)
+-- Legacy migration — normally you do NOTHING here. This only matters if you deployed a
+-- print_orders build that predates `status` AND that table holds rows. This project never
+-- shipped such a build (the CREATE TABLE above makes a fresh, correct table on first run),
+-- so the standard path needs no ALTER.
 --
--- Backfill value is 'done', NOT 'pending': the pre-`status` build DELETEd a row whenever
--- the Prodigi order failed, so any row that survived is a COMPLETED order. Marking them
--- 'done' stops a later Stripe replay from treating them as resumable and re-ordering —
--- which would be unsafe, since those old orders carry no Idempotency-Key to dedupe on.
--- (New rows are still written 'pending' by the app on INSERT; this default only backfills
--- the existing rows this one time.)
---   ALTER TABLE print_orders ADD COLUMN status TEXT NOT NULL DEFAULT 'done';
+-- If you somehow inherited a legacy table: add the column, then RECONCILE each row against
+-- your Prodigi dashboard before trusting its status — do not blind-backfill. A legacy row
+-- is usually a completed order (the old build DELETEd failures), but not guaranteed: a
+-- Prodigi failure coinciding with a D1 outage could have swallowed the cleanup delete and
+-- left an unfulfilled row. Those old orders carry no Idempotency-Key, so a wrong status is
+-- costly either way — 'done' on an unfulfilled row silently loses it; 'pending' on a
+-- completed one lets a Stripe replay double-charge. Reconcile, don't guess:
+--   ALTER TABLE print_orders ADD COLUMN status TEXT;  -- then SET 'done'/'pending' per Prodigi
