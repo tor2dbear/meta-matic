@@ -123,9 +123,11 @@ customer pays → `POST /stripe-webhook` (signature-verified) → Prodigi order 
    npx wrangler deploy
    ```
 
-Once `STRIPE_SECRET_KEY` + `PRODIGI_API_KEY` are set, `GET /print/config` returns
-`{enabled:true}` and the site reveals the **"🖼 Order print"** button on your
-certificates.
+Once **all three** secrets are set (`STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`,
+`PRODIGI_API_KEY`), `GET /print/config` returns `{enabled:true}` and the site reveals
+the **"🖼 Order print"** button. It stays hidden until the webhook secret is in place —
+deliberately, so payments are never taken before fulfilment can happen. (This means
+the button only appears after step 5 below, not step 4 — that's expected.)
 
 ## Test in sandbox (no money, no fulfilment)
 

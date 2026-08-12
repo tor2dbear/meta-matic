@@ -106,7 +106,9 @@ function priceFor(env, cost) {
 export async function handlePrintShop(path, request, env, ctx) {
   if (path === "/print/config" && request.method === "GET") {
     // lets the client show the price ballpark / enabled state without secrets
-    return json({ enabled: !!(env.STRIPE_SECRET_KEY && env.PRODIGI_API_KEY), currency: env.PRINT_CURRENCY || "EUR" });
+    // Every fulfilment-critical secret must be present — including the webhook secret,
+    // or payments would be taken while webhooks fail signature checks and no order is made.
+    return json({ enabled: !!(env.STRIPE_SECRET_KEY && env.PRODIGI_API_KEY && env.STRIPE_WEBHOOK_SECRET), currency: env.PRINT_CURRENCY || "EUR" });
   }
 
   // POST /print-image?serial=N  (body = PNG bytes) -> { key, url }
@@ -160,21 +162,30 @@ export async function handlePrintShop(path, request, env, ctx) {
     let event;
     try { event = await verifyStripe(raw, request.headers.get("stripe-signature"), env.STRIPE_WEBHOOK_SECRET); }
     catch (e) { return new Response("bad signature", { status: 400 }); }
-    if (event.type === "checkout.session.completed") {
+    // Fulfil on an immediately-paid Checkout OR a delayed method (SEPA, some Klarna)
+    // that later succeeds — NEVER on the bare `completed` event while still unpaid,
+    // or a later payment failure would leave the seller paying for the print.
+    if (event.type === "checkout.session.completed" || event.type === "checkout.session.async_payment_succeeded") {
       const s = event.data.object;
+      if (s.payment_status !== "paid") return new Response("ok (awaiting payment)", { status: 200 });
       const m = s.metadata || {};
-      const ship = s.shipping_details || s.customer_details || {};
+      // Newer Stripe API versions nest the collected shipping address under
+      // collected_information; fall back to the legacy top-level field. customer_details
+      // is billing-oriented and used only for name/email/phone, never for the address.
+      const ship = (s.collected_information && s.collected_information.shipping_details) || s.shipping_details || {};
+      const cust = s.customer_details || {};
       const addr = ship.address || {};
+      if (!addr.line1 || !addr.country) return new Response("ok (no shipping address)", { status: 200 }); // never order a broken shipment
       const order = {
         merchantReference: "meta-matic-" + (m.serial || ""),
         shippingMethod: env.PRODIGI_SHIPPING || "Standard",
         recipient: {
-          name: ship.name || (s.customer_details && s.customer_details.name) || "Customer",
-          email: s.customer_details && s.customer_details.email || undefined,
-          phoneNumber: s.customer_details && s.customer_details.phone || undefined,
+          name: ship.name || cust.name || "Customer",
+          email: cust.email || undefined,
+          phoneNumber: cust.phone || undefined,
           address: {
-            line1: addr.line1 || "", line2: addr.line2 || null,
-            postalOrZipCode: addr.postal_code || "", countryCode: addr.country || m.country || "",
+            line1: addr.line1, line2: addr.line2 || null,
+            postalOrZipCode: addr.postal_code || "", countryCode: addr.country,
             townOrCity: addr.city || "", stateOrCounty: addr.state || null,
           },
         },
@@ -184,10 +195,10 @@ export async function handlePrintShop(path, request, env, ctx) {
         }],
         metadata: { serial: m.serial, stripeSession: s.id },
       };
-      // Create the order; if Prodigi is briefly unreachable, still 200 the webhook
-      // (Stripe retries otherwise) — creation is idempotent via merchantReference.
+      // If Prodigi is briefly unreachable, 500 so Stripe retries; creation is
+      // idempotent via merchantReference so a retry won't double-order.
       try { await prodigi(env, "Orders", order); }
-      catch (e) { return new Response("order deferred: " + (e.message || e), { status: 500 }); } // Stripe will retry
+      catch (e) { return new Response("order deferred: " + (e.message || e), { status: 500 }); }
     }
     return new Response("ok", { status: 200 });
   }
