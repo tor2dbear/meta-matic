@@ -39,4 +39,11 @@ CREATE TABLE IF NOT EXISTS print_orders (
 -- harmless: it means you're already migrated. Run it only if you created the table from
 -- an earlier build; skip/ignore the error otherwise. (Kept separate, not a destructive
 -- DROP, so re-running the schema never wipes fulfilment history.)
---   ALTER TABLE print_orders ADD COLUMN status TEXT NOT NULL DEFAULT 'pending';
+--
+-- Backfill value is 'done', NOT 'pending': the pre-`status` build DELETEd a row whenever
+-- the Prodigi order failed, so any row that survived is a COMPLETED order. Marking them
+-- 'done' stops a later Stripe replay from treating them as resumable and re-ordering —
+-- which would be unsafe, since those old orders carry no Idempotency-Key to dedupe on.
+-- (New rows are still written 'pending' by the app on INSERT; this default only backfills
+-- the existing rows this one time.)
+--   ALTER TABLE print_orders ADD COLUMN status TEXT NOT NULL DEFAULT 'done';
