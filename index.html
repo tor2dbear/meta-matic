@@ -1271,6 +1271,10 @@
   document.addEventListener("click", e => {
     if (!drawerEl.classList.contains("open")) return;
     if (drawerEl.contains(e.target) || youToggle.contains(e.target)) return;
+    // Save/Print append a temporary download <a> to <body> and click it; that
+    // synthetic click must NOT read as an outside tap (it would close the drawer
+    // and preventDefault the download itself).
+    if (e.target instanceof HTMLAnchorElement && e.target.hasAttribute("download")) return;
     setDrawer(false);
     e.stopPropagation(); e.preventDefault();
   }, true);
@@ -1511,11 +1515,16 @@
     });
   }
   // Only signed works (those in the ledger) can be saved — signing is the act.
+  function flashBtn(btn, label) {           // silent downloads need a visible "it worked"
+    btn.textContent = "✓ Saved";
+    clearTimeout(btn._flash);
+    btn._flash = setTimeout(() => { btn.textContent = label; }, 1600);
+  }
   el.ledger.addEventListener("click", e => {
     const save = e.target.closest(".cert-save");
-    if (save) { saveImage(save.dataset.uid); return; }
+    if (save) { saveImage(save.dataset.uid); flashBtn(save, "↓ Save image"); return; }
     const print = e.target.closest(".cert-print");
-    if (print) downloadPrint(print.dataset.uid);
+    if (print) { downloadPrint(print.dataset.uid); flashBtn(print, "↓ Print · 300 dpi"); }
   });
 
   /* ---------- export a signed work as a shareable PNG ---------- */
