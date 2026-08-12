@@ -26,6 +26,26 @@ function json(obj, status = 200) {
 
 const str = (v, max) => (v == null ? null : String(v).slice(0, max));
 
+// Deterministic latent walk — MUST match index.html's coordFor exactly, so the map
+// plots the same point the client draws. Coordinates are derived here from the serial
+// and NEVER taken from the request: /claim is public, and a hostile u,v (e.g. 1e308)
+// would flow into renderMap() as Infinity and crash the canvas for every visitor.
+function h1(i) {
+  let n = Math.imul(i | 0, 374761393) + 2654435761;
+  n = Math.imul(n ^ (n >>> 13), 1274126177);
+  n = (n ^ (n >>> 16)) >>> 0;
+  return n / 4294967296;
+}
+const smooth = t => t * t * (3 - 2 * t);
+function value1(x) {
+  const i = Math.floor(x), f = x - i;
+  return h1(i) * (1 - smooth(f)) + h1(i + 1) * smooth(f);
+}
+const WALK = 0.135;
+function coordFor(g) {
+  return { u: value1(g * WALK + 40.5), v: value1(g * WALK + 913.7) };
+}
+
 // Shape a DB row into the certificate object the client renders.
 function certOf(row) {
   if (!row) return null;
@@ -99,8 +119,7 @@ export default {
       if (!owner_id) return json({ error: "owner id required" }, 400);
       const address = str(body.address, 64);
       const sig = str(body.sig, 300);
-      const u = Number(body.u), v = Number(body.v);
-      if (!Number.isFinite(u) || !Number.isFinite(v)) return json({ error: "coordinate required" }, 400);
+      const { u, v } = coordFor(serial);   // derived server-side — client coords are never trusted
       const gen = Number.isFinite(Number(body.gen)) ? Number(body.gen) : 1;
       const ts = Date.now();
 

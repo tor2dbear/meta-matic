@@ -801,7 +801,8 @@
     lastBase: -1,
     centerSerial: 0,
     globalTotal: null,       // global certified count from the backend; null = unknown/offline
-    claimed: []              // every certified point {serial,u,v,method}, for the map
+    claimed: [],             // every certified point {serial,u,v,method}, for the map
+    owned: []                // serials you hold a certificate for (durable, uncapped)
   };
   const seenBuf = []; // {g,u,v}
   const SEAM_EPS = 0.020;
@@ -1336,7 +1337,7 @@
     return "m" + (++uidCounter) + "-" + Math.random().toString(36).slice(2, 10);
   }
   function persist() {
-    try { localStorage.setItem(LS_KEY, JSON.stringify({ signed: state.signed, minted: state.minted })); }
+    try { localStorage.setItem(LS_KEY, JSON.stringify({ signed: state.signed, minted: state.minted, owned: state.owned })); }
     catch (e) { /* private mode etc. — carry on without saving */ }
   }
   function restore() {
@@ -1344,6 +1345,7 @@
       const d = JSON.parse(localStorage.getItem(LS_KEY) || "null");
       if (d && typeof d.signed === "number") state.signed = d.signed;
       if (d && Array.isArray(d.minted)) state.minted = d.minted.slice(0, 24);
+      if (d && Array.isArray(d.owned)) state.owned = d.owned;  // durable ownership, uncapped
       state.minted.forEach(m => {                 // backfill older saves
         if (!m.uid) m.uid = uidFor();
         if (!m.gen) m.gen = 1;                    // pre-versioning entries were drawn by v1
@@ -1360,6 +1362,7 @@
     if (opts.wallet) entry.wallet = opts.wallet;   // off-chain signature (wallet method)
     state.minted.unshift(entry);
     if (state.minted.length > 24) state.minted.pop();
+    if (!state.owned.includes(serial)) state.owned.push(serial); // durable — survives ledger eviction
     state.signed++;
     persist();
     renderLedger();
@@ -1371,24 +1374,39 @@
   // KEY) is the arbiter: two people who tap at once can't both win. method is
   // "browser" (instant, browser-id) or "wallet" (adds a personal_sign signature).
   async function claim(serial, method, walletData) {
-    const c = coordFor(serial);
+    const seq = signedReqSeq;   // focus generation — a late completion must not act on a newer card
     const id = method === "wallet" && walletData ? walletData.address : uidFor();
-    const payload = { serial, method, id, u: c.u, v: c.v, gen: GEN };
-    if (method === "wallet" && walletData) { payload.address = walletData.address; payload.sig = walletData.signature; }
+    const payload = { serial, method, id, gen: GEN };   // coords are derived server-side from serial
+    if (method === "wallet" && walletData) {
+      payload.address = walletData.address; payload.sig = walletData.signature; payload.msg = walletData.message;
+    }
 
-    const res = await apiPost("/claim", payload);
+    // Separate a true transport failure (offline → best-effort local cert) from an
+    // HTTP rejection (server said no → never record false ownership).
+    let net = true, ok = false, data = null;
+    if (apiEnabled()) {
+      try {
+        const r = await fetch(API + "/claim", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+        ok = r.ok;
+        try { data = await r.json(); } catch (e) { /* non-JSON body */ }
+      } catch (e) { net = false; }   // fetch threw → genuinely unreachable
+    } else { net = false; }          // no backend configured → behave like offline
 
-    // Offline / API unreachable: exclusivity can't be enforced, so fall back to a
-    // best-effort local certificate (kept in this browser only).
-    if (res == null) {
+    if (seq !== signedReqSeq) return;   // the card moved on while we waited — drop this
+
+    if (!net) {   // offline / no backend: exclusivity can't be enforced, keep a local copy
       mint(serial, { method, wallet: walletEntry(walletData) });
       showSeam("✓ CERTIFIED · № " + serial.toLocaleString("en-US") + " · saved locally (offline)", 2.6);
       closeFocus(true);
       return;
     }
-    if (res.ok) {
+    if (!ok) {   // server reachable but rejected — do NOT mint a false certificate
+      showCardMsg("Couldn’t certify — the machine’s ledger didn’t accept it. Try again in a moment.");
+      return;
+    }
+    if (data && data.ok) {
       mint(serial, { method, wallet: walletEntry(walletData) });
-      if (typeof res.total === "number") { state.globalTotal = res.total; updateGlobalChip(); }
+      if (typeof data.total === "number") { state.globalTotal = data.total; updateGlobalChip(); }
       refreshClaimed();
       showSeam((method === "wallet" ? "⛓ CERTIFIED · " + shortAddr(walletData.address) + " · " : "✓ CERTIFIED · ") +
         "№ " + serial.toLocaleString("en-US") + " is yours", 2.8);
@@ -1396,10 +1414,11 @@
       return;
     }
     // Taken — someone was first. Stay on the card and show who.
-    const who = res.cert && res.cert.method === "wallet" && res.cert.address ? shortAddr(res.cert.address) : "someone";
-    showCardMsg("Claimed " + timeAgo(res.cert && res.cert.ts) + " by " + who +
+    const c = data && data.cert;
+    const who = c && c.method === "wallet" && c.address ? shortAddr(c.address) : "someone";
+    showCardMsg("Claimed " + timeAgo(c && c.ts) + " by " + who +
       ". There are infinitely many others — the belt is still running.");
-    renderClaimStatus(serial, { claimed: true, cert: res.cert });
+    renderClaimStatus(serial, { claimed: true, cert: c });
     refreshClaimed();
   }
 
@@ -1572,19 +1591,33 @@
   // Available / yours / claimed-by-someone — drives the status line AND whether the
   // two certify buttons are offered. You never claim before the server has answered.
   function renderClaimStatus(serial, data) {
-    const mine = state.minted.some(m => m.serial === serial);
-    const claimed = mine || (data && data.claimed);
-    if (!claimed) {
+    const myId = uidFor();
+    // Ownership is the SERVER's word, not a local signature: a legacy (pre-exclusive)
+    // entry in state.minted must not masquerade as owning the new certificate.
+    const ownsCert = c => !!c && (c.owner === myId ||
+      (c.method === "wallet" && c.address && state.minted.some(m =>
+        m.serial === serial && m.wallet && (m.wallet.address || "").toLowerCase() === c.address.toLowerCase())));
+    if (data && data.claimed) {                       // server answered: it is taken
+      if (ownsCert(data.cert)) {
+        fSignedRow.innerHTML = '<b class="owned">◆ Yours</b> — you hold the certificate for this work.';
+      } else {
+        const c = data.cert || {};
+        const who = c.method === "wallet" && c.address ? shortAddr(c.address) : "someone";
+        fSignedRow.innerHTML = '<b class="owned">◆ Claimed</b> by ' + who + ' · ' + timeAgo(c.ts) + '. Infinitely many others remain.';
+      }
+      setCertifyEnabled(false);
+    } else if (data && data.claimed === false) {      // server answered: available
       fSignedRow.innerHTML = '<b class="avail">● Available</b> — no one has certified this work. You could be the first.';
       setCertifyEnabled(true);
-    } else if (mine) {
-      fSignedRow.innerHTML = '<b class="owned">◆ Yours</b> — you hold the certificate for this work.';
-      setCertifyEnabled(false);
-    } else {
-      const c = (data && data.cert) || {};
-      const who = c.method === "wallet" && c.address ? shortAddr(c.address) : "someone";
-      fSignedRow.innerHTML = '<b class="owned">◆ Claimed</b> by ' + who + ' · ' + timeAgo(c.ts) + '. Infinitely many others remain.';
-      setCertifyEnabled(false);
+    } else {                                          // no server answer (offline) — best-effort local
+      const mineLocal = state.owned.includes(serial) || state.minted.some(m => m.serial === serial);
+      if (mineLocal) {
+        fSignedRow.innerHTML = '<b class="owned">◆ Yours</b> — certified (offline copy).';
+        setCertifyEnabled(false);
+      } else {
+        fSignedRow.innerHTML = '<b class="avail">● Available</b> — ledger unreachable; you can certify locally.';
+        setCertifyEnabled(true);
+      }
     }
     fSignedRow.hidden = false;
   }
@@ -1614,15 +1647,18 @@
 
     // Global "signed N times" line. Hidden when offline (page stays fully usable).
     const seq = ++signedReqSeq;
-    // Optimistic default (available, unless you already hold it), then let the server
-    // confirm. Certify buttons never fire a claim before the server has answered.
-    renderClaimStatus(serial, { claimed: false });
+    // Loading state with the certify buttons HIDDEN until the server answers — so you
+    // can never begin a claim on an already-claimed work during network latency.
+    fSignedRow.hidden = false;
+    fSignedRow.innerHTML = "Checking availability…";
+    setCertifyEnabled(false);
     if (apiEnabled()) {
       apiGet("/work?serial=" + serial).then(res => {
         if (seq !== signedReqSeq) return; // a newer work is open now — drop this answer
-        if (!res) return;                 // offline/unreachable — keep the optimistic view
-        renderClaimStatus(serial, res);
+        renderClaimStatus(serial, res);   // res null (offline) → local best-effort inside
       });
+    } else {
+      renderClaimStatus(serial, null);    // no backend — local best-effort
     }
 
     clearCardMsg();
