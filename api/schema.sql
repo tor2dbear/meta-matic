@@ -18,3 +18,30 @@ CREATE TABLE IF NOT EXISTS certificates (
 
 -- recent-first scans for the map / feed
 CREATE INDEX IF NOT EXISTS idx_certificates_ts ON certificates(ts);
+
+-- Print-shop fulfilment ledger. One row per PAID Stripe Checkout session. `session`
+-- is the PRIMARY KEY, so the webhook claims a session atomically before creating the
+-- Prodigi order: a Stripe retry of the same payment fails the INSERT instead of
+-- placing a second, seller-charged order. `status` starts 'pending' and flips to
+-- 'done' only once Prodigi confirms — so a row that dies mid-flight is a resume point,
+-- not a false "already fulfilled" (the retry re-orders under the same idempotency key).
+-- The same work bought twice is two distinct sessions -> two rows -> two orders.
+CREATE TABLE IF NOT EXISTS print_orders (
+  session  TEXT PRIMARY KEY,               -- Stripe Checkout Session id (unique per checkout)
+  serial   TEXT,                           -- the work's serial (provenance; not unique)
+  status   TEXT NOT NULL DEFAULT 'pending',-- 'pending' | 'done'
+  ts       INTEGER NOT NULL                -- unix seconds
+);
+-- Legacy migration — normally you do NOTHING here. This only matters if you deployed a
+-- print_orders build that predates `status` AND that table holds rows. This project never
+-- shipped such a build (the CREATE TABLE above makes a fresh, correct table on first run),
+-- so the standard path needs no ALTER.
+--
+-- If you somehow inherited a legacy table: add the column, then RECONCILE each row against
+-- your Prodigi dashboard before trusting its status — do not blind-backfill. A legacy row
+-- is usually a completed order (the old build DELETEd failures), but not guaranteed: a
+-- Prodigi failure coinciding with a D1 outage could have swallowed the cleanup delete and
+-- left an unfulfilled row. Those old orders carry no Idempotency-Key, so a wrong status is
+-- costly either way — 'done' on an unfulfilled row silently loses it; 'pending' on a
+-- completed one lets a Stripe replay double-charge. Reconcile, don't guess:
+--   ALTER TABLE print_orders ADD COLUMN status TEXT;  -- then SET 'done'/'pending' per Prodigi

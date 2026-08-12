@@ -68,6 +68,12 @@ secrets, add the Stripe webhook, test in sandbox (test card 4242…), then flip
 ## Open questions
 - Which exact Prodigi SKU / size(s)? (One square fine-art print to start; could offer
   a size picker later.)
-- Idempotency: confirm Prodigi dedupes on `merchantReference` so a webhook retry can't
-  double-order.
 - International VAT/duties: leave to the recipient (current), or add Stripe Tax later?
+
+## Resolved
+- **Idempotency (was a webhook double-order risk).** Now enforced by D1: the webhook
+  claims the Stripe `session.id` in a `print_orders` PRIMARY KEY before ordering, so a
+  Stripe retry can't create a second seller-charged order; `merchantReference = session.id`
+  is a Prodigi-side backstop. Ships in `schema.sql`.
+- **Webhook-secret rotation.** `verifyStripe` now accepts any of the multiple `v1`
+  signatures Stripe sends during a secret rotation, so valid webhooks aren't rejected.

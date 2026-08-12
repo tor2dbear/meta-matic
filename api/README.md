@@ -157,5 +157,19 @@ buffer absorbs FX/rounding. Tune the three `PRICE_*` vars in `wrangler.toml`.
   storage; add a per-IP limit with the `/claim` rate-limit work if needed.
 - **Import duties/VAT** on international orders are the recipient's (note shown at
   checkout). At volume, add Stripe Tax (pay-per-use) or restrict `allowed_countries`.
-- **Idempotency:** orders use `merchantReference = meta-matic-<serial>`; a webhook
-  retry won't duplicate if Prodigi dedupes on it (confirm in your account settings).
+- **Idempotency:** exactly-once fulfilment is enforced by D1 with a resume-safe state
+  machine. The webhook records the Stripe **session id** in `print_orders` (PRIMARY KEY)
+  as `pending` **before** ordering, then flips it to `done` only once Prodigi confirms.
+  A Stripe retry of the same payment hits the primary key: if the row is `done` it's
+  ack'd with no second order; if it's still `pending` (a prior attempt died mid-flight)
+  the order is retried — safely, because the Prodigi POST carries an **`Idempotency-Key`**
+  (the session id), so Prodigi creates at most one order per session. A DB error that is
+  *not* a key collision (e.g. the migration hasn't run) returns `500` so Stripe keeps
+  retrying rather than dropping a paid order. Buying the same work twice is two sessions
+  → two orders (intended). The `print_orders` table ships in `schema.sql` — run it once
+  before deploy (`npx wrangler d1 execute meta-matic-certs --remote --file=schema.sql`).
+  On a database that only has `certificates`, this creates `print_orders` correctly. If
+  you ever created `print_orders` from an *earlier* build that lacked the `status` column,
+  `CREATE TABLE IF NOT EXISTS` won't add it — run the one-line `ALTER TABLE … ADD COLUMN
+  status …` migration noted in `schema.sql` instead (otherwise every webhook `INSERT`
+  fails with "no column named status").
