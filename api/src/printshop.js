@@ -84,10 +84,14 @@ async function verifyStripe(raw, header, secret) {
 }
 
 // ---- Prodigi ----
-async function prodigi(env, path, body) {
+async function prodigi(env, path, body, idempotencyKey) {
+  const headers = { "X-API-Key": env.PRODIGI_API_KEY, "Content-Type": "application/json" };
+  // Prodigi's real idempotency mechanism: two order POSTs with the same key create at
+  // most one order. This makes re-ordering a resumed (still-'pending') session safe.
+  if (idempotencyKey) headers["Idempotency-Key"] = idempotencyKey;
   const r = await fetch(env.PRODIGI_BASE + "/v4.0/" + path, {
     method: "POST",
-    headers: { "X-API-Key": env.PRODIGI_API_KEY, "Content-Type": "application/json" },
+    headers,
     body: JSON.stringify(body),
   });
   const data = await r.json();
@@ -190,20 +194,30 @@ export async function handlePrintShop(path, request, env, ctx) {
       const cust = s.customer_details || {};
       const addr = ship.address || {};
       if (!addr.line1 || !addr.country) return new Response("ok (no shipping address)", { status: 200 }); // never order a broken shipment
-      // Exactly-once fulfilment. The Stripe session id is unique per checkout, so it is
-      // the right idempotency key: the SAME work printed by two buyers is two sessions
-      // (two orders, intended), while a Stripe RETRY of one payment repeats the same
-      // session id. Claim it in D1 first — the PRIMARY KEY makes the INSERT atomic, so a
-      // duplicate means this session is already being/been fulfilled: ack and stop.
+      // Exactly-once fulfilment, tracked in D1 so neither a Stripe retry nor a Worker
+      // death mid-flight can double-charge OR silently drop a paid order. The Stripe
+      // session id is the idempotency key (unique per checkout; a retry repeats it, two
+      // buyers = two sessions). We record 'pending' BEFORE ordering and flip to 'done'
+      // only after Prodigi confirms — so a row is a resume point, never proof of a print.
+      const nowSec = Math.floor(Date.now() / 1000);
       try {
-        await env.DB.prepare("INSERT INTO print_orders (session, serial, ts) VALUES (?, ?, ?)")
-          .bind(s.id, String(m.serial || ""), Math.floor(Date.now() / 1000)).run();
+        await env.DB.prepare("INSERT INTO print_orders (session, serial, status, ts) VALUES (?, ?, 'pending', ?)")
+          .bind(s.id, String(m.serial || ""), nowSec).run();
       } catch (e) {
-        return new Response("ok (already fulfilled)", { status: 200 });
+        // ONLY a primary-key collision means "we've seen this session". Any other error
+        // (table missing because the migration wasn't run, D1 briefly down) must be
+        // retryable — a 200 here would tell Stripe to stop retrying an unfulfilled order.
+        if (!/constraint|unique/i.test(String(e.message || e)))
+          return new Response("db unavailable", { status: 500 });
+        // Row exists. If a prior attempt completed, we're done. If it died while still
+        // 'pending', fall through and (re-)order — Prodigi's Idempotency-Key below makes
+        // that safe, so a mid-flight crash resumes instead of stranding a paid order.
+        const row = await env.DB.prepare("SELECT status FROM print_orders WHERE session = ?").bind(s.id).first();
+        if (row && row.status === "done") return new Response("ok (already fulfilled)", { status: 200 });
       }
       const order = {
-        // Unique per checkout, so Prodigi also dedupes a retry on it — a second backstop
-        // to the D1 guard for the ambiguous "order created but response lost" failure.
+        // Human-readable reference in the Prodigi dashboard; the actual dedupe is the
+        // Idempotency-Key header (= session id) sent on the POST below.
         merchantReference: s.id,
         shippingMethod: env.PRODIGI_SHIPPING || "Standard",
         recipient: {
@@ -222,13 +236,14 @@ export async function handlePrintShop(path, request, env, ctx) {
         }],
         metadata: { serial: m.serial, stripeSession: s.id },
       };
-      // If Prodigi is briefly unreachable, release the idempotency claim and 500 so
-      // Stripe retries; the retry re-INSERTs and re-orders. If Prodigi actually DID
-      // create the order but the response was lost, the merchantReference dedupe above
-      // stops the retry from double-ordering.
-      try { await prodigi(env, "Orders", order); }
-      catch (e) {
-        try { await env.DB.prepare("DELETE FROM print_orders WHERE session = ?").bind(s.id).run(); } catch {}
+      // Order (idempotent on the session id), then mark done. If Prodigi is unreachable
+      // we LEAVE the row 'pending' and 500 so Stripe retries — the pending row is a
+      // resume point, not a completion, so a lost response never strands a paid order.
+      // A retry re-POSTs with the same Idempotency-Key, so Prodigi won't double-create.
+      try {
+        await prodigi(env, "Orders", order, s.id);
+        await env.DB.prepare("UPDATE print_orders SET status = 'done', ts = ? WHERE session = ?").bind(nowSec, s.id).run();
+      } catch (e) {
         return new Response("order deferred: " + (e.message || e), { status: 500 });
       }
     }

@@ -157,10 +157,14 @@ buffer absorbs FX/rounding. Tune the three `PRICE_*` vars in `wrangler.toml`.
   storage; add a per-IP limit with the `/claim` rate-limit work if needed.
 - **Import duties/VAT** on international orders are the recipient's (note shown at
   checkout). At volume, add Stripe Tax (pay-per-use) or restrict `allowed_countries`.
-- **Idempotency:** exactly-once fulfilment is enforced by D1. The webhook claims the
-  Stripe **session id** in `print_orders` (PRIMARY KEY) before ordering, so a Stripe
-  retry of the same payment fails the INSERT and is ack'd without a second order.
-  `merchantReference` is set to that same session id as a Prodigi-side backstop for the
-  "order created but response lost" case. Buying the same work twice is two sessions →
-  two orders (intended). The `print_orders` table ships in `schema.sql` — re-run it
-  (`npx wrangler d1 execute meta-matic-certs --remote --file=schema.sql`) after updating.
+- **Idempotency:** exactly-once fulfilment is enforced by D1 with a resume-safe state
+  machine. The webhook records the Stripe **session id** in `print_orders` (PRIMARY KEY)
+  as `pending` **before** ordering, then flips it to `done` only once Prodigi confirms.
+  A Stripe retry of the same payment hits the primary key: if the row is `done` it's
+  ack'd with no second order; if it's still `pending` (a prior attempt died mid-flight)
+  the order is retried — safely, because the Prodigi POST carries an **`Idempotency-Key`**
+  (the session id), so Prodigi creates at most one order per session. A DB error that is
+  *not* a key collision (e.g. the migration hasn't run) returns `500` so Stripe keeps
+  retrying rather than dropping a paid order. Buying the same work twice is two sessions
+  → two orders (intended). The `print_orders` table ships in `schema.sql` — **re-run it**
+  (`npx wrangler d1 execute meta-matic-certs --remote --file=schema.sql`) before deploy.

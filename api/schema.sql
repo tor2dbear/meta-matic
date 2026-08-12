@@ -20,12 +20,15 @@ CREATE TABLE IF NOT EXISTS certificates (
 CREATE INDEX IF NOT EXISTS idx_certificates_ts ON certificates(ts);
 
 -- Print-shop fulfilment ledger. One row per PAID Stripe Checkout session. `session`
--- is the PRIMARY KEY, so the webhook can claim a session atomically before creating
--- the Prodigi order: a Stripe retry of the same payment fails the INSERT (already
--- fulfilled) instead of placing a second, seller-charged order. The same work bought
--- twice is two distinct sessions -> two rows -> two orders, which is intended.
+-- is the PRIMARY KEY, so the webhook claims a session atomically before creating the
+-- Prodigi order: a Stripe retry of the same payment fails the INSERT instead of
+-- placing a second, seller-charged order. `status` starts 'pending' and flips to
+-- 'done' only once Prodigi confirms — so a row that dies mid-flight is a resume point,
+-- not a false "already fulfilled" (the retry re-orders under the same idempotency key).
+-- The same work bought twice is two distinct sessions -> two rows -> two orders.
 CREATE TABLE IF NOT EXISTS print_orders (
-  session  TEXT PRIMARY KEY,   -- Stripe Checkout Session id (unique per checkout)
-  serial   TEXT,               -- the work's serial (provenance; not unique)
-  ts       INTEGER NOT NULL    -- unix seconds
+  session  TEXT PRIMARY KEY,               -- Stripe Checkout Session id (unique per checkout)
+  serial   TEXT,                           -- the work's serial (provenance; not unique)
+  status   TEXT NOT NULL DEFAULT 'pending',-- 'pending' | 'done'
+  ts       INTEGER NOT NULL                -- unix seconds
 );
