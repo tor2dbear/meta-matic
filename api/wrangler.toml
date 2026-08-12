@@ -21,3 +21,24 @@ routes = [
 binding = "DB"
 database_name = "meta-matic-certs"
 database_id = "1850438b-4c4f-4b44-931c-a9617078437c"
+
+# R2 — print-ready images, fetched by URL by the print lab (Prodigi).
+# Create once: npx wrangler r2 bucket create meta-matic-prints
+[[r2_buckets]]
+binding = "PRINTS"
+bucket_name = "meta-matic-prints"
+
+# Print shop config (v2.1b). SECRETS are NOT here — set them with:
+#   npx wrangler secret put STRIPE_SECRET_KEY
+#   npx wrangler secret put STRIPE_WEBHOOK_SECRET
+#   npx wrangler secret put PRODIGI_API_KEY
+[vars]
+PRODIGI_BASE = "https://api.sandbox.prodigi.com"  # sandbox first; -> https://api.prodigi.com when live
+PRODIGI_SKU = "GLOBAL-FAP-16X16"                   # CONFIRM/replace with your chosen Prodigi product SKU
+PRODIGI_SHIPPING = "Standard"                      # Budget | Standard | StandardPlus | Express | Overnight
+PRINT_CURRENCY = "EUR"                             # match your Prodigi account currency to avoid FX
+PRICE_PCT_FEE = "0.039"                            # Stripe worst-case %, grossed up so you net full cost
+PRICE_FIXED_FEE = "0.30"                           # Stripe fixed fee
+PRICE_BUFFER = "1.50"                              # FX/rounding safety margin (never out of pocket)
+SITE_ORIGIN = "https://meta-matic.tor2dbear.com"
+API_ORIGIN = "https://api.tor2dbear.com/meta-matic"

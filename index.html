@@ -395,6 +395,24 @@
     font-size: 9.5px; letter-spacing: 0.08em; border-color: var(--line);
   }
   .cert-wrap { display: flex; flex-direction: column; }
+  .cert-order { padding: 4px 9px; font-size: 9.5px; letter-spacing: 0.08em; border-color: var(--signal); color: var(--signal); }
+  .cert-order:hover { background: var(--signal); color: #fff; }
+
+  /* Order-a-print dialog (v2.1b) */
+  .order { position: fixed; inset: 0; z-index: 60; display: flex; align-items: center; justify-content: center;
+    background: color-mix(in srgb, var(--ink) 42%, transparent); padding: 20px; }
+  .order[hidden] { display: none; }
+  .order-card { background: var(--surface); border: 1px solid var(--line); max-width: 380px; width: 100%;
+    padding: 22px; display: flex; flex-direction: column; gap: 12px; }
+  .order-t { font-size: 13px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink); }
+  .order-sub, .order-fine { margin: 0; line-height: 1.5; color: var(--muted); }
+  .order-sub { font-size: 12px; }
+  .order-fine { font-size: 10px; color: var(--faint); }
+  .order-row { display: flex; flex-direction: column; gap: 5px; font-size: 10px; letter-spacing: 0.1em;
+    text-transform: uppercase; color: var(--faint); }
+  .order-row select { font: inherit; font-size: 13px; padding: 8px; background: var(--paper); color: var(--ink); border: 1px solid var(--line); }
+  .order-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 4px; }
+  .order-msg { font-size: 12px; color: var(--signal); margin: 0; }
 
   footer.credit {
     padding: 16px clamp(16px, 4vw, 40px); border-top: 1px solid var(--line);
@@ -507,6 +525,22 @@
     <div class="empty">Nothing certified yet. What you certify becomes <em>yours</em> — one owner per work, drawn by no one.</div>
   </div>
 </aside>
+
+<!-- Order a print (v2.1b) — priced per destination at checkout, so you cover exactly
+     print + shipping. Hidden until the backend reports the shop is configured. -->
+<div class="order" id="order" hidden>
+  <div class="order-card" role="dialog" aria-modal="true" aria-label="Order a print">
+    <div class="order-t">Order a print</div>
+    <p class="order-sub">A fine-art giclée of your certified work. The price is calculated live for your country at checkout — you pay exactly the print + shipping, nothing hidden.</p>
+    <label class="order-row"><span>Ship to</span><select id="order-country"></select></label>
+    <div class="order-actions">
+      <button class="primary" id="order-go">Continue to secure checkout →</button>
+      <button id="order-cancel">Cancel</button>
+    </div>
+    <p class="order-msg" id="order-msg" hidden></p>
+    <p class="order-fine">Payment by Stripe · printed &amp; shipped worldwide by Prodigi. Import duties may apply on international orders.</p>
+  </div>
+</div>
 
 <footer class="credit">
   <span>Kinetic art → latent space · epicycles over a continuous field · built by <a href="https://tor-bjorn.com" target="_blank" rel="noopener">Torbjörn Hedberg</a></span>
@@ -803,7 +837,8 @@
     centerSerial: 0,
     globalTotal: null,       // global certified count from the backend; null = unknown/offline
     claimed: [],             // every certified point {serial,u,v,method}, for the map
-    owned: []                // serials you hold a certificate for (durable, uncapped)
+    owned: [],               // serials you hold a certificate for (durable, uncapped)
+    printEnabled: false       // is the print shop configured on the backend?
   };
   const seenBuf = []; // {g,u,v}
   const SEAM_EPS = 0.020;
@@ -1275,6 +1310,7 @@
     // synthetic click must NOT read as an outside tap (it would close the drawer
     // and preventDefault the download itself).
     if (e.target instanceof HTMLAnchorElement && e.target.hasAttribute("download")) return;
+    if (orderEl.contains(e.target)) return;   // the order dialog sits ABOVE the drawer; don't hijack its clicks
     setDrawer(false);
     e.stopPropagation(); e.preventDefault();
   }, true);
@@ -1509,6 +1545,7 @@
         '<div class="cert-actions">' +
           '<button class="cert-save" data-uid="' + m.uid + '">↓ Save image</button>' +
           '<button class="cert-print" data-uid="' + m.uid + '" title="High-resolution print file — 3600×3600 px, 300 dpi (12×12 in)">↓ Print · 300 dpi</button>' +
+          (state.printEnabled ? '<button class="cert-order" data-uid="' + m.uid + '">🖼 Order print</button>' : '') +
         '</div>';
       wrap.appendChild(cv); wrap.appendChild(meta);
       el.ledger.appendChild(wrap);
@@ -1521,10 +1558,52 @@
     btn._flash = setTimeout(() => { btn.textContent = label; }, 1600);
   }
   el.ledger.addEventListener("click", e => {
+    const order = e.target.closest(".cert-order");
+    if (order) { openOrder(order.dataset.uid); return; }
     const save = e.target.closest(".cert-save");
     if (save) { saveImage(save.dataset.uid); flashBtn(save, "↓ Save image"); return; }
     const print = e.target.closest(".cert-print");
     if (print) { downloadPrint(print.dataset.uid); flashBtn(print, "↓ Print · 300 dpi"); }
+  });
+
+  /* ---------- order a physical print (v2.1b: Stripe Checkout -> Prodigi) ---------- */
+  const orderEl = document.getElementById("order");
+  const orderCountry = document.getElementById("order-country");
+  const orderMsg = document.getElementById("order-msg");
+  const orderGo = document.getElementById("order-go");
+  let orderEntry = null;
+  // A curated worldwide set; any Prodigi-shippable country can be added here.
+  const COUNTRIES = [["SE","Sweden"],["NO","Norway"],["DK","Denmark"],["FI","Finland"],["DE","Germany"],["NL","Netherlands"],["FR","France"],["ES","Spain"],["IT","Italy"],["PT","Portugal"],["BE","Belgium"],["AT","Austria"],["CH","Switzerland"],["IE","Ireland"],["PL","Poland"],["CZ","Czechia"],["GB","United Kingdom"],["US","United States"],["CA","Canada"],["AU","Australia"],["NZ","New Zealand"],["JP","Japan"],["SG","Singapore"],["HK","Hong Kong"],["AE","United Arab Emirates"],["BR","Brazil"],["MX","Mexico"],["ZA","South Africa"],["IN","India"],["KR","South Korea"]];
+  COUNTRIES.forEach(([code, name]) => { const o = document.createElement("option"); o.value = code; o.textContent = name; orderCountry.appendChild(o); });
+  function setOrderMsg(t) { orderMsg.textContent = t || ""; orderMsg.hidden = !t; }
+  function openOrder(uid) {
+    orderEntry = state.minted.find(e => e.uid === uid);
+    if (!orderEntry) return;
+    setOrderMsg(""); orderGo.disabled = false; orderEl.hidden = false;
+  }
+  function closeOrder() { orderEl.hidden = true; orderEntry = null; }
+  document.getElementById("order-cancel").addEventListener("click", closeOrder);
+  orderEl.addEventListener("click", e => { if (e.target === orderEl) closeOrder(); });
+  orderGo.addEventListener("click", async () => {
+    if (!orderEntry) return;
+    const country = orderCountry.value, entry = orderEntry;
+    orderGo.disabled = true; setOrderMsg("Preparing your print…");
+    try {
+      // 1) render the 300 dpi file and upload it so the lab can fetch it by URL
+      const blob = dataURLToBlob(exportCanvas(entry, 3600).toDataURL("image/png"));
+      const up = await fetch(API + "/print-image?serial=" + entry.serial, { method: "POST", headers: { "Content-Type": "image/png" }, body: blob });
+      const upd = up.ok ? await up.json() : null;
+      if (!upd || !upd.key) throw new Error("image upload failed");
+      // 2) get a Stripe Checkout priced live for the chosen country
+      setOrderMsg("Calculating price for your country…");
+      const co = await fetch(API + "/print-checkout", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ serial: entry.serial, imageKey: upd.key, country }) });
+      const cod = await co.json().catch(() => null);
+      if (!co.ok || !cod || !cod.url) throw new Error((cod && cod.error) || "checkout unavailable");
+      window.location.href = cod.url; // 3) hand off to Stripe's hosted page
+    } catch (err) {
+      setOrderMsg("Couldn’t start checkout — " + (err.message || err) + ".");
+      orderGo.disabled = false;
+    }
   });
 
   /* ---------- export a signed work as a shareable PNG ---------- */
@@ -1914,6 +1993,11 @@
     }
   });
   refreshClaimed();   // pull everyone's certified points for the map
+  // print shop: reveal the "Order print" action only once the backend is configured
+  apiGet("/print/config").then(res => { if (res && res.enabled) { state.printEnabled = true; renderLedger(); } });
+  // returning from Stripe Checkout
+  if (/[?&]print=ok/.test(location.search)) { showSeam("✓ Print ordered — a confirmation email is on its way", 4.5); history.replaceState(null, "", location.pathname); }
+  else if (/[?&]print=cancel/.test(location.search)) history.replaceState(null, "", location.pathname);
 
   if (reduced) {
     state.looking = false;

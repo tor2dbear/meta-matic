@@ -50,10 +50,24 @@ Everything is pay-per-use, so idle cost is `$0`:
   pipeline to build/maintain, `$0` idle. Best first step at 0 expected orders; upgrade to
   the automated flow only if orders actually materialise.
 
+## Delivered — v2.1b (built, sandbox-first)
+Decision: **worldwide, automated, live-priced** (not the manual v2.1a). Built in
+`api/src/printshop.js` + the frontend "🖼 Order print" flow:
+
+- Client renders the 300 dpi PNG → `/print-image` (R2) → `/print-checkout` (live
+  **Prodigi quote** for the chosen country → **Stripe Checkout**) → `/stripe-webhook`
+  (signature-verified) → **Prodigi order**. Dependency-free (fetch + WebCrypto).
+- Priced so the customer covers 100% of cost, per destination — never out of pocket,
+  `$0` idle. The button only appears once the backend reports it's configured.
+
+**Left to go live (all on the owner):** create Stripe + Prodigi accounts, pick the
+Prodigi SKU + currency, `wrangler r2 bucket create meta-matic-prints`, set the three
+secrets, add the Stripe webhook, test in sandbox (test card 4242…), then flip
+`PRODIGI_BASE` + live keys. Full checklist in `api/README.md`.
+
 ## Open questions
-- Start with v2.1a (manual, Payment Link) and automate later, or build the Worker
-  pipeline up front?
-- Price: pull a live Prodigi quote per destination (always covers cost), or a flat
-  worst-case price (simpler, occasionally over-charges)?
-- Ship worldwide, or restrict to one country first to sidestep cross-border VAT? (At
-  scale: Stripe Tax is pay-per-use, no subscription.)
+- Which exact Prodigi SKU / size(s)? (One square fine-art print to start; could offer
+  a size picker later.)
+- Idempotency: confirm Prodigi dedupes on `merchantReference` so a webhook retry can't
+  double-order.
+- International VAT/duties: leave to the recipient (current), or add Stripe Tax later?
