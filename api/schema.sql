@@ -32,3 +32,11 @@ CREATE TABLE IF NOT EXISTS print_orders (
   status   TEXT NOT NULL DEFAULT 'pending',-- 'pending' | 'done'
   ts       INTEGER NOT NULL                -- unix seconds
 );
+-- Migration for a print_orders that was created BEFORE `status` existed: CREATE TABLE
+-- IF NOT EXISTS above is a no-op on an existing table, so it would NOT add the column,
+-- and every webhook INSERT would then fail with "no column named status". This ALTER
+-- adds it. On a fresh table (already has status) SQLite errors "duplicate column name" —
+-- harmless: it means you're already migrated. Run it only if you created the table from
+-- an earlier build; skip/ignore the error otherwise. (Kept separate, not a destructive
+-- DROP, so re-running the schema never wipes fulfilment history.)
+--   ALTER TABLE print_orders ADD COLUMN status TEXT NOT NULL DEFAULT 'pending';

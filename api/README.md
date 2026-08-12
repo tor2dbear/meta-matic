@@ -166,5 +166,10 @@ buffer absorbs FX/rounding. Tune the three `PRICE_*` vars in `wrangler.toml`.
   (the session id), so Prodigi creates at most one order per session. A DB error that is
   *not* a key collision (e.g. the migration hasn't run) returns `500` so Stripe keeps
   retrying rather than dropping a paid order. Buying the same work twice is two sessions
-  → two orders (intended). The `print_orders` table ships in `schema.sql` — **re-run it**
-  (`npx wrangler d1 execute meta-matic-certs --remote --file=schema.sql`) before deploy.
+  → two orders (intended). The `print_orders` table ships in `schema.sql` — run it once
+  before deploy (`npx wrangler d1 execute meta-matic-certs --remote --file=schema.sql`).
+  On a database that only has `certificates`, this creates `print_orders` correctly. If
+  you ever created `print_orders` from an *earlier* build that lacked the `status` column,
+  `CREATE TABLE IF NOT EXISTS` won't add it — run the one-line `ALTER TABLE … ADD COLUMN
+  status …` migration noted in `schema.sql` instead (otherwise every webhook `INSERT`
+  fails with "no column named status").
