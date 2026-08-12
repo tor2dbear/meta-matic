@@ -389,8 +389,9 @@
   .cert .mark-no { color: var(--blue); font-weight: 700; font-size: 10px; letter-spacing: 0.08em; margin-right: 7px; }
   .cert.newest { background: color-mix(in srgb, var(--signal) 7%, var(--paper)); }
   .cert .quip { font-size: 10px; color: var(--muted); line-height: 1.5; margin-top: 4px; padding-top: 5px; border-top: 1px dashed var(--line-2); }
-  .cert-save {
-    align-self: flex-start; margin-top: 5px; padding: 4px 9px;
+  .cert-actions { display: flex; gap: 6px; margin-top: 5px; align-self: flex-start; flex-wrap: wrap; }
+  .cert-save, .cert-print {
+    padding: 4px 9px;
     font-size: 9.5px; letter-spacing: 0.08em; border-color: var(--line);
   }
   .cert-wrap { display: flex; flex-direction: column; }
@@ -1501,40 +1502,49 @@
         '<div class="row"><span class="lab">Print</span><span class="val">' + m.fp + '</span></div>' +
         (m.wallet ? '<div class="row"><span class="lab">Wallet</span><span class="val" style="color:var(--blue)" title="' + m.wallet.address + '">⛓ ' + shortAddr(m.wallet.address) + '</span></div>' : '') +
         (idx === 0 ? '<div class="quip">' + QUIPS[m.serial % QUIPS.length] + '</div>' : '') +
-        '<button class="cert-save" data-uid="' + m.uid + '">↓ Save image</button>';
+        '<div class="cert-actions">' +
+          '<button class="cert-save" data-uid="' + m.uid + '">↓ Save image</button>' +
+          '<button class="cert-print" data-uid="' + m.uid + '" title="High-resolution print file — 3600×3600 px, 300 dpi (12×12 in)">↓ Print · 300 dpi</button>' +
+        '</div>';
       wrap.appendChild(cv); wrap.appendChild(meta);
       el.ledger.appendChild(wrap);
     });
   }
   // Only signed works (those in the ledger) can be saved — signing is the act.
   el.ledger.addEventListener("click", e => {
-    const btn = e.target.closest(".cert-save");
-    if (btn) saveImage(btn.dataset.uid);
+    const save = e.target.closest(".cert-save");
+    if (save) { saveImage(save.dataset.uid); return; }
+    const print = e.target.closest(".cert-print");
+    if (print) downloadPrint(print.dataset.uid);
   });
 
   /* ---------- export a signed work as a shareable PNG ---------- */
-  function exportCanvas(entry) {
+  // S = canvas size in px. Default 1400 (a shareable image); 3600 renders a
+  // print-ready file (12×12 in at 300 dpi). Text/margins scale with k so the
+  // composition is identical at any size — drawWork scales itself from `size`.
+  function exportCanvas(entry, S) {
+    S = S || 1400;
+    const k = S / 1400, pad = 150 * k;
     const serial = entry.serial;
-    const S = 1400, pad = 150;
     const cv = document.createElement("canvas"); cv.width = S; cv.height = S;
     const x = cv.getContext("2d");
     const paper = css("--paper"), ink = css("--ink"), muted = css("--muted"), faint = css("--faint");
     x.fillStyle = paper; x.fillRect(0, 0, S, S);
     const c = coordFor(serial);
-    drawWork(x, S / 2, S / 2 + 10, S - pad * 2, c.u, c.v, ink, 3.2, entry.gen);
+    drawWork(x, S / 2, S / 2 + 10 * k, S - pad * 2, c.u, c.v, ink, 3.2, entry.gen);
     x.fillStyle = muted; x.textAlign = "left";
-    x.font = "700 30px ui-monospace, Menlo, monospace";
-    x.fillText("MÉTA-MATIC ∞", pad, 84);
+    x.font = "700 " + (30 * k) + "px ui-monospace, Menlo, monospace";
+    x.fillText("MÉTA-MATIC ∞", pad, 84 * k);
     x.fillStyle = muted; x.textAlign = "left";
-    x.font = "22px ui-monospace, Menlo, monospace";
-    x.fillText("№ " + serial.toLocaleString("en-US"), pad, S - pad + 44);
+    x.font = (22 * k) + "px ui-monospace, Menlo, monospace";
+    x.fillText("№ " + serial.toLocaleString("en-US"), pad, S - pad + 44 * k);
     x.textAlign = "right";
     x.fillStyle = faint;
-    x.fillText(c.u.toFixed(4) + " , " + c.v.toFixed(4) + "  ·  " + fingerprint(serial, c.u, c.v), S - pad, S - pad + 44);
+    x.fillText(c.u.toFixed(4) + " , " + c.v.toFixed(4) + "  ·  " + fingerprint(serial, c.u, c.v), S - pad, S - pad + 44 * k);
     if (entry.wallet && entry.wallet.address) {
       x.textAlign = "left"; x.fillStyle = muted;
-      x.font = "18px ui-monospace, Menlo, monospace";
-      x.fillText("wallet-attested · " + entry.wallet.address, pad, S - pad + 80);
+      x.font = (18 * k) + "px ui-monospace, Menlo, monospace";
+      x.fillText("wallet-attested · " + entry.wallet.address, pad, S - pad + 80 * k);
     }
     return cv;
   }
@@ -1544,11 +1554,8 @@
     a.href = url; a.download = filename; document.body.appendChild(a); a.click();
     a.remove(); setTimeout(() => URL.revokeObjectURL(url), 4000);
   }
-  function saveImage(uid) {
-    const entry = state.minted.find(e => e.uid === uid);
-    if (!entry) return;
-    const filename = "meta-matic-" + entry.serial + ".png";
-    exportCanvas(entry).toBlob(async blob => {
+  function downloadCanvas(cv, filename) {
+    cv.toBlob(async blob => {
       if (!blob) return;
       const dl = window.claude && window.claude.downloads;
       if (dl && typeof dl.save === "function") {
@@ -1561,6 +1568,15 @@
         anchorDownload(blob, filename); // standalone / outside the Artifact sandbox
       }
     }, "image/png");
+  }
+  function saveImage(uid) {
+    const entry = state.minted.find(e => e.uid === uid);
+    if (entry) downloadCanvas(exportCanvas(entry), "meta-matic-" + entry.serial + ".png");
+  }
+  // v2.0 print: a 3600×3600 (12 in @ 300 dpi) file of your certified work.
+  function downloadPrint(uid) {
+    const entry = state.minted.find(e => e.uid === uid);
+    if (entry) downloadCanvas(exportCanvas(entry, 3600), "meta-matic-print-" + entry.serial + ".png");
   }
 
   /* ---------- focus / inspect (click -> freeze + enlarge -> deliberate sign) ---------- */
