@@ -116,8 +116,10 @@ customer pays → `POST /stripe-webhook` (signature-verified) → Prodigi order 
    npx wrangler deploy
    ```
 5. **Stripe webhook** — Stripe Dashboard → Developers → Webhooks → add endpoint
-   `https://api.tor2dbear.com/meta-matic/stripe-webhook`, event
-   `checkout.session.completed`. Copy its signing secret and:
+   `https://api.tor2dbear.com/meta-matic/stripe-webhook`, subscribed to **both**
+   `checkout.session.completed` **and** `checkout.session.async_payment_succeeded`
+   (the second is what fulfils delayed methods like Klarna/SEPA once they clear).
+   Copy its signing secret and:
    ```bash
    npx wrangler secret put STRIPE_WEBHOOK_SECRET  # whsec_…
    npx wrangler deploy
