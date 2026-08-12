@@ -324,6 +324,9 @@
   .sb-legend .lg-path { width: 14px; height: 0; border-top: 2px solid var(--muted); }
   .sb-legend .lg-mark { border: 1.8px solid var(--blue); border-radius: 50%; }
   .sb-legend .lg-now { background: var(--signal); border-radius: 50%; }
+  .sb-legend .lg-claim { background: var(--muted); border-radius: 50%; opacity: 0.6; }
+  #f-signed-row .avail { color: var(--blue); }
+  #f-signed-row .owned { color: var(--muted); }
   .sb-coord {
     position: absolute; bottom: 12px; right: clamp(16px, 4vw, 40px);
     font-size: 10px; letter-spacing: 0.04em; color: var(--faint); pointer-events: none;
@@ -419,9 +422,9 @@
   <div class="telemetry">
     <div class="chip"><div class="k">Works produced</div><div class="v" id="t-produced">0</div></div>
     <div class="chip"><div class="k">Coordinate</div><div class="v coord" id="t-coord">—</div></div>
-    <div class="chip system"><div class="k">Signed · all</div><div class="v" id="t-global">—</div></div>
+    <div class="chip system"><div class="k">Certified · all</div><div class="v" id="t-global">—</div></div>
     <button class="chip you" id="you-toggle" type="button" aria-expanded="false" aria-controls="drawer" title="Open your certificates">
-      <div class="k">Signed · you</div><div class="v"><span id="t-signed">0</span><span class="cue" aria-hidden="true">▾</span></div>
+      <div class="k">Certified · you</div><div class="v"><span id="t-signed">0</span><span class="cue" aria-hidden="true">▾</span></div>
     </button>
   </div>
 </header>
@@ -445,14 +448,15 @@
         <div class="fm-row"><span>Fingerprint</span><b class="mono" id="f-fp">—</b></div>
         <div class="fm-row wide" id="f-signed-row" hidden></div>
         <p class="fm-note">Inspect the work. The machine keeps drawing while you look.
-          What you sign becomes <em>yours</em> — drawn by no one.</p>
+          Certify it to make it <em>yours</em> — one owner per work.</p>
         <div class="fm-actions">
-          <button class="primary" id="f-sign">Sign &amp; keep</button>
-          <button id="f-wallet">⛓ Sign with wallet</button>
+          <button class="primary" id="f-sign">Certify · this browser</button>
+          <button id="f-wallet">⛓ Certify · with wallet</button>
           <button id="f-release">Release · keep looking</button>
         </div>
-        <p class="fm-fine">Only what you sign can be saved as an image. Signing with a
-          wallet adds a free, off-chain cryptographic attestation — no gas, no chain.</p>
+        <p class="fm-fine">One certificate per work — first to sign. A wallet adds a free,
+          off-chain signature (personal_sign) — no gas, no chain. Save your certified
+          works as images from “Certified · you”.</p>
         <p class="fm-msg" id="f-msg" hidden></p>
       </div>
     </div>
@@ -484,7 +488,8 @@
   <div class="sb-label"><span class="t">The space</span><span class="s">one path · everyone walks it</span></div>
   <div class="sb-legend">
     <span><i class="lg-path"></i>Shared path</span>
-    <span><i class="lg-mark"></i>Your signings</span>
+    <span><i class="lg-claim"></i>Certified · all</span>
+    <span><i class="lg-mark"></i>Your certificates</span>
     <span><i class="lg-now"></i>The machine · now</span>
   </div>
   <div class="sb-coord mono">field continues · ∞</div>
@@ -494,11 +499,11 @@
      "Signed · you" handle in the header. -->
 <aside class="drawer" id="drawer" aria-label="Your certificates" aria-hidden="true" inert>
   <div class="drawer-hd">
-    <div><span class="drawer-t">Signed · you</span><span class="drawer-n" id="ledger-count">0 signed</span></div>
+    <div><span class="drawer-t">Certified · you</span><span class="drawer-n" id="ledger-count">0 certified</span></div>
     <button class="drawer-x" id="drawer-x" type="button" aria-label="Close">✕</button>
   </div>
   <div class="ledger" id="ledger">
-    <div class="empty">Nothing signed yet. What you sign becomes <em>yours</em> — signed by you, drawn by no one.</div>
+    <div class="empty">Nothing certified yet. What you certify becomes <em>yours</em> — one owner per work, drawn by no one.</div>
   </div>
 </aside>
 
@@ -795,7 +800,9 @@
     minted: [],
     lastBase: -1,
     centerSerial: 0,
-    globalTotal: null        // global tally from the backend; null = unknown/offline
+    globalTotal: null,       // global certified count from the backend; null = unknown/offline
+    claimed: [],             // every certified point {serial,u,v,method}, for the map
+    owned: []                // serials you hold a certificate for (durable, uncapped)
   };
   const seenBuf = []; // {g,u,v}
   const SEAM_EPS = 0.020;
@@ -1108,6 +1115,17 @@
       mctx.globalAlpha = 1;
     }
 
+    // everyone's certified points — the collective constellation (faint, beneath your marks)
+    if (state.claimed && state.claimed.length) {
+      mctx.fillStyle = muted;
+      for (let i = 0; i < state.claimed.length; i++) {
+        const cc = state.claimed[i];
+        mctx.globalAlpha = 0.45;
+        mctx.beginPath(); mctx.arc(X(cc.u), Y(cc.v), 2.2 * dpr, 0, TAU); mctx.fill();
+      }
+      mctx.globalAlpha = 1;
+    }
+
     // your signings — ultramarine marks. Draw the rings first, then the numbers
     // with a simple vertical declutter, so clustered or duplicate marks keep
     // readable labels that still map to the numbered certificates.
@@ -1319,7 +1337,7 @@
     return "m" + (++uidCounter) + "-" + Math.random().toString(36).slice(2, 10);
   }
   function persist() {
-    try { localStorage.setItem(LS_KEY, JSON.stringify({ signed: state.signed, minted: state.minted })); }
+    try { localStorage.setItem(LS_KEY, JSON.stringify({ signed: state.signed, minted: state.minted, owned: state.owned })); }
     catch (e) { /* private mode etc. — carry on without saving */ }
   }
   function restore() {
@@ -1327,6 +1345,7 @@
       const d = JSON.parse(localStorage.getItem(LS_KEY) || "null");
       if (d && typeof d.signed === "number") state.signed = d.signed;
       if (d && Array.isArray(d.minted)) state.minted = d.minted.slice(0, 24);
+      if (d && Array.isArray(d.owned)) state.owned = d.owned;  // durable ownership, uncapped
       state.minted.forEach(m => {                 // backfill older saves
         if (!m.uid) m.uid = uidFor();
         if (!m.gen) m.gen = 1;                    // pre-versioning entries were drawn by v1
@@ -1334,29 +1353,73 @@
     } catch (e) { /* corrupt data — ignore */ }
   }
 
-  function mint(serial, wallet) {
+  // Record a certificate locally (the "you won" side). Global exclusivity is decided
+  // by the server in claim(); this just persists what you now hold, in this browser.
+  function mint(serial, opts) {
+    opts = opts || {};
     const c = coordFor(serial);
-    const entry = { uid: uidFor(), serial, u: c.u, v: c.v, fp: fingerprint(serial, c.u, c.v), gen: GEN };
-    if (wallet) entry.wallet = wallet;   // optional off-chain attestation
+    const entry = { uid: uidFor(), serial, u: c.u, v: c.v, fp: fingerprint(serial, c.u, c.v), gen: GEN, method: opts.method || "browser" };
+    if (opts.wallet) entry.wallet = opts.wallet;   // off-chain signature (wallet method)
     state.minted.unshift(entry);
     if (state.minted.length > 24) state.minted.pop();
+    if (!state.owned.includes(serial)) state.owned.push(serial); // durable — survives ledger eviction
     state.signed++;
     persist();
     renderLedger();
     updateHUD();
-    // The "Signed · you" count (with its ▾ handle) updates to reflect the new
-    // certificate; the drawer stays user-controlled rather than auto-opening.
-    seamEl.innerHTML = "✓ SIGNED · № " + serial.toLocaleString("en-US") + " is now yours";
-    seamEl.classList.add("on");
-    seamTimer = 2.2;
-    // Record the signature in the global ledger (best-effort; no-op when API is empty
-    // or unreachable). The response carries the fresh global total + this work's count.
-    apiPost("/sign", { serial }).then(res => {
-      if (res && typeof res.total === "number") {
-        state.globalTotal = res.total;
-        updateGlobalChip();
-      }
-    });
+  }
+  const walletEntry = w => w ? { address: w.address, signature: w.signature, message: w.message, ts: new Date().toISOString() } : undefined;
+
+  // Certify a work — first signer wins, exclusively. The server (D1, `serial` PRIMARY
+  // KEY) is the arbiter: two people who tap at once can't both win. method is
+  // "browser" (instant, browser-id) or "wallet" (adds a personal_sign signature).
+  async function claim(serial, method, walletData) {
+    const seq = signedReqSeq;   // focus generation — a late completion must not act on a newer card
+    const id = method === "wallet" && walletData ? walletData.address : uidFor();
+    const payload = { serial, method, id, gen: GEN };   // coords are derived server-side from serial
+    if (method === "wallet" && walletData) {
+      payload.address = walletData.address; payload.sig = walletData.signature; payload.msg = walletData.message;
+    }
+
+    // Separate a true transport failure (offline → best-effort local cert) from an
+    // HTTP rejection (server said no → never record false ownership).
+    let net = true, ok = false, data = null;
+    if (apiEnabled()) {
+      try {
+        const r = await fetch(API + "/claim", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+        ok = r.ok;
+        try { data = await r.json(); } catch (e) { /* non-JSON body */ }
+      } catch (e) { net = false; }   // fetch threw → genuinely unreachable
+    } else { net = false; }          // no backend configured → behave like offline
+
+    if (seq !== signedReqSeq) return;   // the card moved on while we waited — drop this
+
+    if (!net) {   // offline / no backend: exclusivity can't be enforced, keep a local copy
+      mint(serial, { method, wallet: walletEntry(walletData) });
+      showSeam("✓ CERTIFIED · № " + serial.toLocaleString("en-US") + " · saved locally (offline)", 2.6);
+      closeFocus(true);
+      return;
+    }
+    if (!ok) {   // server reachable but rejected — do NOT mint a false certificate
+      showCardMsg("Couldn’t certify — the machine’s ledger didn’t accept it. Try again in a moment.");
+      return;
+    }
+    if (data && data.ok) {
+      mint(serial, { method, wallet: walletEntry(walletData) });
+      if (typeof data.total === "number") { state.globalTotal = data.total; updateGlobalChip(); }
+      refreshClaimed();
+      showSeam((method === "wallet" ? "⛓ CERTIFIED · " + shortAddr(walletData.address) + " · " : "✓ CERTIFIED · ") +
+        "№ " + serial.toLocaleString("en-US") + " is yours", 2.8);
+      closeFocus(true);
+      return;
+    }
+    // Taken — someone was first. Stay on the card and show who.
+    const c = data && data.cert;
+    const who = c && c.method === "wallet" && c.address ? shortAddr(c.address) : "someone";
+    showCardMsg("Claimed " + timeAgo(c && c.ts) + " by " + who +
+      ". There are infinitely many others — the belt is still running.");
+    renderClaimStatus(serial, { claimed: true, cert: c });
+    refreshClaimed();
   }
 
   /* ---------- optional wallet attestation (off-chain personal_sign; free, no gas) ----------
@@ -1406,9 +1469,7 @@
       const message = attestationMessage(serial, c, fp, iso);
       const signature = await eth.request({ method: "personal_sign", params: [message, address] });
       if (gen !== signedReqSeq) return; // focus moved on — drop this stale completion
-      mint(serial, { address, signature, message, ts: iso });
-      showSeam("⛓ WALLET-ATTESTED · " + shortAddr(address) + " signed № " + serial.toLocaleString("en-US"), 2.8);
-      closeFocus(true); // keep the attest confirmation, skip the missed-works flash
+      await claim(serial, "wallet", { address, signature, message }); // server decides who owns it
     } catch (err) {
       if (gen !== signedReqSeq) return; // focus moved on — don't message a stale dialog
       const declined = err && (err.code === 4001 || /reject|denied|declined/i.test(err.message || ""));
@@ -1417,10 +1478,10 @@
   }
 
   function renderLedger() {
-    el.ledgerCount.textContent = state.signed.toLocaleString("en-US") + " signed · this browser";
+    el.ledgerCount.textContent = state.signed.toLocaleString("en-US") + " certified · this browser";
     if (!state.minted.length) {
-      el.ledger.innerHTML = '<div class="empty">Nothing signed yet. Click a work to inspect it enlarged — ' +
-        'what you sign becomes <em>yours</em>, drawn by no one. Saved in this browser.</div>';
+      el.ledger.innerHTML = '<div class="empty">Nothing certified yet. Click a work to inspect it enlarged — ' +
+        'certify it and it becomes <em>yours</em>, one owner per work. Saved in this browser.</div>';
       return;
     }
     el.ledger.innerHTML = "";
@@ -1516,14 +1577,55 @@
   let signedReqSeq = 0; // guards against a stale /stats answer landing on a newer work
 
   // The gut-punch: how many others already signed this "unique" pick.
-  function showSignedCount(serial, count) {
-    if (count > 0) {
-      fSignedRow.innerHTML = "This work has been signed <b>" +
-        count.toLocaleString("en-US") + "</b> " + (count === 1 ? "time" : "times") + " before you.";
-    } else {
-      fSignedRow.innerHTML = "No one has signed this work yet. You could be the first.";
+  const fSign = document.getElementById("f-sign");
+  const fWallet = document.getElementById("f-wallet");
+  function setCertifyEnabled(on) { fSign.hidden = !on; fWallet.hidden = !on; }
+  function timeAgo(ts) {
+    if (!ts) return "just now";
+    const s = Math.max(0, (Date.now() - ts) / 1000);
+    if (s < 60) return "just now";
+    const m = Math.floor(s / 60); if (m < 60) return m + " min ago";
+    const h = Math.floor(m / 60); if (h < 24) return h + " h ago";
+    return Math.floor(h / 24) + " d ago";
+  }
+  // Available / yours / claimed-by-someone — drives the status line AND whether the
+  // two certify buttons are offered. You never claim before the server has answered.
+  function renderClaimStatus(serial, data) {
+    const myId = uidFor();
+    // Ownership is the SERVER's word, not a local signature: a legacy (pre-exclusive)
+    // entry in state.minted must not masquerade as owning the new certificate.
+    const ownsCert = c => !!c && (c.owner === myId ||
+      (c.method === "wallet" && c.address && state.minted.some(m =>
+        m.serial === serial && m.wallet && (m.wallet.address || "").toLowerCase() === c.address.toLowerCase())));
+    if (data && data.claimed) {                       // server answered: it is taken
+      if (ownsCert(data.cert)) {
+        fSignedRow.innerHTML = '<b class="owned">◆ Yours</b> — you hold the certificate for this work.';
+      } else {
+        const c = data.cert || {};
+        const who = c.method === "wallet" && c.address ? shortAddr(c.address) : "someone";
+        fSignedRow.innerHTML = '<b class="owned">◆ Claimed</b> by ' + who + ' · ' + timeAgo(c.ts) + '. Infinitely many others remain.';
+      }
+      setCertifyEnabled(false);
+    } else if (data && data.claimed === false) {      // server answered: available
+      fSignedRow.innerHTML = '<b class="avail">● Available</b> — no one has certified this work. You could be the first.';
+      setCertifyEnabled(true);
+    } else {                                          // no server answer (offline) — best-effort local
+      const mineLocal = state.owned.includes(serial) || state.minted.some(m => m.serial === serial);
+      if (mineLocal) {
+        fSignedRow.innerHTML = '<b class="owned">◆ Yours</b> — certified (offline copy).';
+        setCertifyEnabled(false);
+      } else {
+        fSignedRow.innerHTML = '<b class="avail">● Available</b> — ledger unreachable; you can certify locally.';
+        setCertifyEnabled(true);
+      }
     }
     fSignedRow.hidden = false;
+  }
+  // Refresh the full set of certified points (for the map) — best-effort.
+  function refreshClaimed() {
+    apiGet("/claimed").then(res => {
+      if (res && Array.isArray(res.certs)) { state.claimed = res.certs; if (mapVisible) renderMap(); }
+    });
   }
 
   function openFocus(serial) {
@@ -1545,22 +1647,25 @@
 
     // Global "signed N times" line. Hidden when offline (page stays fully usable).
     const seq = ++signedReqSeq;
-    fSignedRow.hidden = true;
-    fSignedRow.innerHTML = "";
+    // Loading state with the certify buttons HIDDEN until the server answers — so you
+    // can never begin a claim on an already-claimed work during network latency.
+    fSignedRow.hidden = false;
+    fSignedRow.innerHTML = "Checking availability…";
+    setCertifyEnabled(false);
     if (apiEnabled()) {
-      apiGet("/stats?serial=" + serial).then(res => {
+      apiGet("/work?serial=" + serial).then(res => {
         if (seq !== signedReqSeq) return; // a newer work is open now — drop this answer
-        if (!res) return;                 // offline/unreachable — leave the line hidden
-        if (typeof res.total === "number") { state.globalTotal = res.total; updateGlobalChip(); }
-        if (typeof res.count === "number") showSignedCount(serial, res.count);
+        renderClaimStatus(serial, res);   // res null (offline) → local best-effort inside
       });
+    } else {
+      renderClaimStatus(serial, null);    // no backend — local best-effort
     }
 
     clearCardMsg();
     focusEl.hidden = false;
     document.body.style.overflow = "hidden"; // lock background scroll behind the modal
     focusCard.scrollTop = 0; focusEl.scrollTop = 0; // reopen at the top (card is the scroll container on short screens)
-    document.getElementById("f-sign").focus({ preventScroll: true });
+    document.getElementById("f-release").focus({ preventScroll: true }); // always present; certify buttons may be hidden if claimed
   }
   function closeFocus(silent) {
     focusEl.hidden = true;
@@ -1577,8 +1682,7 @@
     }
   }
   document.getElementById("f-sign").addEventListener("click", () => {
-    if (focusSerial != null) mint(focusSerial);
-    closeFocus(true); // keep the "signed" confirmation, skip the missed flash
+    if (focusSerial != null) claim(focusSerial, "browser"); // claim() closes on win, stays open if taken
   });
   document.getElementById("f-wallet").addEventListener("click", () => {
     if (focusSerial != null) signWithWallet(focusSerial);
@@ -1769,6 +1873,7 @@
       updateGlobalChip();
     }
   });
+  refreshClaimed();   // pull everyone's certified points for the map
 
   if (reduced) {
     state.looking = false;
