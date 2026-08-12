@@ -9,6 +9,11 @@
 // Storage is Cloudflare D1 (binding: DB). Exclusivity is enforced by the schema:
 // `serial` is the PRIMARY KEY, so a second concurrent /claim on the same work
 // fails the INSERT instead of racing to a double-owner. No app-level locking.
+//
+// The print shop (order a physical print — Stripe Checkout + Prodigi) lives in
+// ./printshop.js and is wired in below.
+
+import { handlePrintShop } from "./printshop.js";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",              // public art piece; anyone may read/claim
@@ -140,10 +145,15 @@ export default {
       return json({ ok: true, cert: certOf({ serial, method, owner_id, address, ts }), total });
     }
 
+    // print shop (order a physical print) — /print-image, /print-checkout, /stripe-webhook
+    const printResp = await handlePrintShop(path, request, env);
+    if (printResp) return printResp;
+
     // index / health
     return json({
       name: "meta-matic certificates",
-      endpoints: ["GET /stats", "GET /work?serial=<n>", "GET /claimed", "POST /claim {serial,method,id,...}"],
+      endpoints: ["GET /stats", "GET /work?serial=<n>", "GET /claimed", "POST /claim {serial,method,id,...}",
+        "POST /print-image", "POST /print-checkout", "POST /stripe-webhook"],
     });
   },
 };
