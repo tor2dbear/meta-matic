@@ -61,6 +61,11 @@ aldrig var unikt är hela poängen — ironin är verket.
 
 ## Roadmap
 
+> Detaljerna bor nu som **pucks** under [`roadmap/`](roadmap/) (native-format enligt
+> [tor2dbear/roadmap](https://github.com/tor2dbear/roadmap)). Listan nedan är en
+> kompakt spegling — flippa meta-matics rad i aggregatorns `sources.json` till
+> `"adapter": "pucks"` för full fidelity.
+
 Levererat:
 
 - ✅ Latent löpande band, väggklocksdrivet, deterministisk vandring.
