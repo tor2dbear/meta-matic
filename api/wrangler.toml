@@ -33,7 +33,7 @@ bucket_name = "meta-matic-prints"
 #   npx wrangler secret put STRIPE_WEBHOOK_SECRET
 #   npx wrangler secret put PRODIGI_API_KEY
 [vars]
-PRODIGI_BASE = "https://api.sandbox.prodigi.com"  # sandbox first; -> https://api.prodigi.com when live
+PRODIGI_BASE = "https://api.prodigi.com"           # LIVE — real orders are placed & charged
 PRODIGI_SKU = "GLOBAL-CONS-FAP-20X20"              # 20x20" (~51cm) square giclée, Enhanced Matte Art 200gsm, globally routed
 PRODIGI_SHIPPING = "Standard"                      # Budget | Standard | StandardPlus | Express | Overnight
 PRINT_CURRENCY = "EUR"                             # match your Prodigi account currency to avoid FX
