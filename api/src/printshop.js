@@ -108,16 +108,38 @@ async function quotePrint(env, country) {
   });
   const cs = q.quotes && q.quotes[0] && q.quotes[0].costSummary;
   if (!cs) throw new Error("no quote returned (check SKU / country)");
-  // items + shipping + tax (any that are present)
-  const cost = num(cs.items && cs.items.amount) + num(cs.shipping && cs.shipping.amount) + num(cs.tax && cs.tax.amount);
-  if (cost <= 0) throw new Error("quote returned zero cost");
-  return cost;
+  // items + shipping (+ any tax the quote happens to return — usually none). This is the
+  // TAX-EXCLUSIVE base; Prodigi adds destination tax at order time, which we add in priceFor.
+  const base = num(cs.items && cs.items.amount) + num(cs.shipping && cs.shipping.amount) + num(cs.tax && cs.tax.amount);
+  if (base <= 0) throw new Error("quote returned zero cost");
+  return base;
 }
-// Gross up so that after Stripe's cut the seller still nets the full Prodigi cost:
-//   charge - (charge*pct + fixed) >= cost   ->   charge = (cost + fixed)/(1 - pct) + buffer
-function priceFor(env, cost) {
-  const pct = num(env.PRICE_PCT_FEE || 0.039), fixed = num(env.PRICE_FIXED_FEE || 0.3), buf = num(env.PRICE_BUFFER || 1.5);
-  const charge = (cost + fixed) / (1 - pct) + buf;
+// Standard VAT / GST rate per destination, applied to (items + shipping). Prodigi's quote
+// is tax-exclusive but it charges the destination's tax when the order is created, so we
+// add it here to stay whole. Unknown destinations fall back to a high EU-style rate so we
+// never undercharge. Override/extend without a code change via PRICE_TAX_RATES (a JSON map
+// like {"US":0,"GB":0.2}) and PRICE_TAX_DEFAULT in wrangler.toml.
+const TAX_RATES = {
+  SE: 0.25, NO: 0.25, DK: 0.25, FI: 0.255, DE: 0.19, NL: 0.21, FR: 0.20, ES: 0.21, IT: 0.22,
+  PT: 0.23, BE: 0.21, AT: 0.20, CH: 0.081, IE: 0.23, PL: 0.23, CZ: 0.21, GB: 0.20, US: 0.00,
+  CA: 0.05, AU: 0.10, NZ: 0.15, JP: 0.10, SG: 0.09, HK: 0.00, AE: 0.05, BR: 0.17, MX: 0.16,
+  ZA: 0.15, IN: 0.18, KR: 0.10,
+};
+function taxRateFor(env, country) {
+  let overrides = null;
+  try { overrides = env.PRICE_TAX_RATES ? JSON.parse(env.PRICE_TAX_RATES) : null; } catch { overrides = null; }
+  if (overrides && overrides[country] != null) return num(overrides[country]);
+  if (TAX_RATES[country] != null) return TAX_RATES[country];
+  return num(env.PRICE_TAX_DEFAULT || 0.25); // unknown destination -> safe high rate
+}
+// The customer covers 100% of cost + destination tax + a fixed margin, grossed up so that
+// after Stripe's cut the seller is still whole:
+//   charge = (base + tax + margin + fixed) / (1 - pct) + buffer
+function priceFor(env, base, country) {
+  const pct = num(env.PRICE_PCT_FEE || 0.039), fixed = num(env.PRICE_FIXED_FEE || 0.3);
+  const buf = num(env.PRICE_BUFFER || 1.5), margin = num(env.PRICE_MARGIN || 0);
+  const tax = base * taxRateFor(env, country);
+  const charge = (base + tax + margin + fixed) / (1 - pct) + buf;
   return Math.ceil(charge * 100); // minor units (cents)
 }
 
@@ -153,8 +175,8 @@ export async function handlePrintShop(path, request, env, ctx) {
     const imageKey = String(b.imageKey || "");
     const country = String(b.country || "").toUpperCase().replace(/[^A-Z]/g, "").slice(0, 2);
     if (!serial || !imageKey || country.length !== 2) return json({ error: "serial, imageKey, country required" }, 400);
-    let cost; try { cost = await quotePrint(env, country); } catch (e) { return json({ error: String(e.message || e) }, 502); }
-    const amount = priceFor(env, cost);
+    let base; try { base = await quotePrint(env, country); } catch (e) { return json({ error: String(e.message || e) }, 502); }
+    const amount = priceFor(env, base, country);
     const session = await stripe(env, "checkout/sessions", {
       mode: "payment",
       line_items: [{
@@ -177,32 +199,14 @@ export async function handlePrintShop(path, request, env, ctx) {
   // POST /stripe-webhook -> on payment, create the Prodigi order
   if (path === "/stripe-webhook" && request.method === "POST") {
     const raw = await request.text();
-    const sigHeader = request.headers.get("stripe-signature");
-    // TEMP diagnostic — persist each webhook's decision points to D1 so they can be
-    // inspected out-of-band (wrangler tail is unreliable for console logs). Revert later.
-    const dbg = async (info) => {
-      try { await env.DB.prepare("INSERT INTO webhook_debug (ts, info) VALUES (?, ?)").bind(Math.floor(Date.now() / 1000), JSON.stringify(info)).run(); } catch {}
-    };
     let event;
-    try { event = await verifyStripe(raw, sigHeader, env.STRIPE_WEBHOOK_SECRET); }
-    catch (e) {
-      await dbg({ stage: "verify-failed", err: String(e.message || e), sig: !!sigHeader, rawLen: raw.length, secretPrefix: (env.STRIPE_WEBHOOK_SECRET || "").slice(0, 9) });
-      return new Response("bad signature", { status: 400 });
-    }
-    await dbg({ stage: "verified", type: event.type });
+    try { event = await verifyStripe(raw, request.headers.get("stripe-signature"), env.STRIPE_WEBHOOK_SECRET); }
+    catch (e) { return new Response("bad signature", { status: 400 }); }
     // Fulfil on an immediately-paid Checkout OR a delayed method (SEPA, some Klarna)
     // that later succeeds — NEVER on the bare `completed` event while still unpaid,
     // or a later payment failure would leave the seller paying for the print.
     if (event.type === "checkout.session.completed" || event.type === "checkout.session.async_payment_succeeded") {
       const s = event.data.object;
-      await dbg({
-        stage: "matched",
-        payment_status: s.payment_status,
-        hasCollectedShip: !!(s.collected_information && s.collected_information.shipping_details),
-        hasTopShip: !!s.shipping_details,
-        topKeys: Object.keys(s),
-        metadata: s.metadata,
-      });
       if (s.payment_status !== "paid") return new Response("ok (awaiting payment)", { status: 200 });
       const m = s.metadata || {};
       // Newer Stripe API versions nest the collected shipping address under

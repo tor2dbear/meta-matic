@@ -147,9 +147,21 @@ fulfilled. Verify the address + image look right.
 
 ## Pricing (never out of pocket)
 
-`charge = (prodigi_cost + PRICE_FIXED_FEE) / (1 - PRICE_PCT_FEE) + PRICE_BUFFER`,
-rounded up. The gross-up covers Stripe's cut so you net the full Prodigi cost; the
-buffer absorbs FX/rounding. Tune the three `PRICE_*` vars in `wrangler.toml`.
+`charge = (base + tax + PRICE_MARGIN + PRICE_FIXED_FEE) / (1 - PRICE_PCT_FEE) + PRICE_BUFFER`,
+rounded up, where:
+
+- **base** = the Prodigi quote (items + shipping). Prodigi's quote is **tax-exclusive**.
+- **tax** = `base × rate(country)` — Prodigi bills the destination's VAT/GST at order time,
+  so we add it back or you'd eat it. Rates live in a built-in table in `printshop.js`
+  (EU/UK/US/…); unknown destinations use `PRICE_TAX_DEFAULT`. Override or extend without a
+  code change via `PRICE_TAX_RATES` (a JSON map like `{"US":0,"GB":0.20}`).
+- **PRICE_MARGIN** = your profit per print.
+- the gross-up `/(1 - pct)` covers Stripe's cut; **PRICE_BUFFER** absorbs FX/rounding.
+
+So the customer covers product + shipping + destination tax + Stripe fee + your margin —
+you're never out of pocket. Tune every `PRICE_*` var in `wrangler.toml` (no redeploy of
+logic needed). If you're VAT-registered and reclaim the input VAT, set the relevant rates
+to `0` via `PRICE_TAX_RATES` so you don't double-charge customers.
 
 ## Notes / trade-offs
 
