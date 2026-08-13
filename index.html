@@ -33,8 +33,8 @@
     --drawer:  #f3f1eb;   /* raised plane (certificates menu) — brighter than the page */
     --sunk:    #dcdad1;
     --ink:     #1a1c20;
-    --muted:   #6b6f78;
-    --faint:   #9a9d9f;
+    --muted:   #565a62;   /* darkened for WCAG AA (≥4.5:1 on paper/surface) */
+    --faint:   #63676f;   /* darkened for WCAG AA (was too light for small text) */
     --line:    #c6c4ba;
     --line-2:  #d3d1c8;
     --signal:  #d1402c;
@@ -464,7 +464,7 @@
 </head>
 <body>
 <!-- Hero: the belt fills the first screen; "the space" band lives below the fold. -->
-<div class="hero">
+<main class="hero">
 <header>
   <div class="wordmark">
     <span class="eyebrow">A drawing machine after Tinguely · 2026</span>
@@ -534,7 +534,7 @@
     </p>
   </div>
 </div>
-</div><!-- /.hero -->
+</main><!-- /.hero -->
 
 <!-- The space — unboxed: the machine's one path through the latent field, bleeding
      to the page edges (no frame · the space does not end). Labels float as hairline
