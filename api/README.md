@@ -147,21 +147,26 @@ fulfilled. Verify the address + image look right.
 
 ## Pricing (never out of pocket)
 
-`charge = (base + tax + PRICE_MARGIN + PRICE_FIXED_FEE) / (1 - PRICE_PCT_FEE) + PRICE_BUFFER`,
+Modelled for a **VAT-registered seller selling B2C**:
+
+`charge = ((base + PRICE_MARGIN) × (1 + vat) + PRICE_FIXED_FEE) / (1 - PRICE_PCT_FEE) + PRICE_BUFFER`,
 rounded up, where:
 
-- **base** = the Prodigi quote (items + shipping). Prodigi's quote is **tax-exclusive**.
-- **tax** = `base × rate(country)` — Prodigi bills the destination's VAT/GST at order time,
-  so we add it back or you'd eat it. Rates live in a built-in table in `printshop.js`
-  (EU/UK/US/…); unknown destinations use `PRICE_TAX_DEFAULT`. Override or extend without a
-  code change via `PRICE_TAX_RATES` (a JSON map like `{"US":0,"GB":0.20}`).
-- **PRICE_MARGIN** = your profit per print.
+- **base** = the Prodigi quote (items + shipping), **ex-VAT**. Any VAT Prodigi charges is
+  *input VAT* the seller reclaims (or is reverse-charged B2B), so it is not a real cost and
+  is excluded — `base` is the seller's true cost.
+- **PRICE_MARGIN** = your profit per print (ex-VAT).
+- **vat** = *output VAT* you must charge the customer and remit. Under the EU distance-selling
+  (OSS) threshold this is your home rate (`PRICE_VAT_RATE`, Swedish 25%) on **EU** B2C sales;
+  **non-EU** sales are zero-rated exports (0% — the buyer pays any import VAT/duty). The EU
+  member set is built into `printshop.js`; override any country via `PRICE_VAT_RATES`
+  (JSON, e.g. `{"SE":0.12}` for a reduced art rate, or `{"GB":0.20}`).
 - the gross-up `/(1 - pct)` covers Stripe's cut; **PRICE_BUFFER** absorbs FX/rounding.
 
-So the customer covers product + shipping + destination tax + Stripe fee + your margin —
-you're never out of pocket. Tune every `PRICE_*` var in `wrangler.toml` (no redeploy of
-logic needed). If you're VAT-registered and reclaim the input VAT, set the relevant rates
-to `0` via `PRICE_TAX_RATES` so you don't double-charge customers.
+Net effect: after remitting the output VAT and paying Stripe, you net exactly `base + margin`;
+your real cost is `base`, so the margin is clean profit and you're never out of pocket. Tune
+every `PRICE_*` var in `wrangler.toml`. **Confirm the VAT rate (art can be reduced-rated), the
+OSS threshold, and export handling with your accountant** — the defaults are sensible, not advice.
 
 ## Notes / trade-offs
 

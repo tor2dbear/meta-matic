@@ -108,38 +108,35 @@ async function quotePrint(env, country) {
   });
   const cs = q.quotes && q.quotes[0] && q.quotes[0].costSummary;
   if (!cs) throw new Error("no quote returned (check SKU / country)");
-  // items + shipping (+ any tax the quote happens to return — usually none). This is the
-  // TAX-EXCLUSIVE base; Prodigi adds destination tax at order time, which we add in priceFor.
-  const base = num(cs.items && cs.items.amount) + num(cs.shipping && cs.shipping.amount) + num(cs.tax && cs.tax.amount);
+  // Seller's real cost = items + shipping, EX-VAT. Any VAT Prodigi lists is input VAT the
+  // (VAT-registered) seller reclaims or is reverse-charged, so it isn't a cost — excluded.
+  const base = num(cs.items && cs.items.amount) + num(cs.shipping && cs.shipping.amount);
   if (base <= 0) throw new Error("quote returned zero cost");
   return base;
 }
-// Standard VAT / GST rate per destination, applied to (items + shipping). Prodigi's quote
-// is tax-exclusive but it charges the destination's tax when the order is created, so we
-// add it here to stay whole. Unknown destinations fall back to a high EU-style rate so we
-// never undercharge. Override/extend without a code change via PRICE_TAX_RATES (a JSON map
-// like {"US":0,"GB":0.2}) and PRICE_TAX_DEFAULT in wrangler.toml.
-const TAX_RATES = {
-  SE: 0.25, NO: 0.25, DK: 0.25, FI: 0.255, DE: 0.19, NL: 0.21, FR: 0.20, ES: 0.21, IT: 0.22,
-  PT: 0.23, BE: 0.21, AT: 0.20, CH: 0.081, IE: 0.23, PL: 0.23, CZ: 0.21, GB: 0.20, US: 0.00,
-  CA: 0.05, AU: 0.10, NZ: 0.15, JP: 0.10, SG: 0.09, HK: 0.00, AE: 0.05, BR: 0.17, MX: 0.16,
-  ZA: 0.15, IN: 0.18, KR: 0.10,
-};
-function taxRateFor(env, country) {
+// OUTPUT VAT the (Swedish, VAT-registered) seller must charge a B2C customer and remit.
+// Under the EU distance-selling (OSS) threshold this is the seller's home rate on all EU
+// sales; sales outside the EU are zero-rated exports (the buyer pays any import VAT/duty).
+// So EU destinations get PRICE_VAT_RATE, everything else 0. Override any country via
+// PRICE_VAT_RATES (JSON, e.g. {"GB":0.2,"SE":0.12}). Confirm the rate (art can be
+// reduced-rated) and the OSS threshold with your accountant.
+const EU = new Set(["AT","BE","BG","HR","CY","CZ","DK","EE","FI","FR","DE","GR","HU","IE","IT","LV","LT","LU","MT","NL","PL","PT","RO","SK","SI","ES","SE"]);
+function vatRateFor(env, country) {
   let overrides = null;
-  try { overrides = env.PRICE_TAX_RATES ? JSON.parse(env.PRICE_TAX_RATES) : null; } catch { overrides = null; }
+  try { overrides = env.PRICE_VAT_RATES ? JSON.parse(env.PRICE_VAT_RATES) : null; } catch { overrides = null; }
   if (overrides && overrides[country] != null) return num(overrides[country]);
-  if (TAX_RATES[country] != null) return TAX_RATES[country];
-  return num(env.PRICE_TAX_DEFAULT || 0.25); // unknown destination -> safe high rate
+  return EU.has(country) ? num(env.PRICE_VAT_RATE || 0.25) : 0;
 }
-// The customer covers 100% of cost + destination tax + a fixed margin, grossed up so that
-// after Stripe's cut the seller is still whole:
-//   charge = (base + tax + margin + fixed) / (1 - pct) + buffer
+// The customer covers the seller's ex-VAT cost + margin, plus output VAT on that sale,
+// grossed up so Stripe's cut still leaves the seller whole:
+//   charge = ((base + margin) * (1 + vat) + fixed) / (1 - pct) + buffer
+// After remitting the VAT and paying Stripe, the seller nets exactly base + margin, and
+// their real (ex-VAT) cost is base — so the margin is clean profit.
 function priceFor(env, base, country) {
   const pct = num(env.PRICE_PCT_FEE || 0.039), fixed = num(env.PRICE_FIXED_FEE || 0.3);
   const buf = num(env.PRICE_BUFFER || 1.5), margin = num(env.PRICE_MARGIN || 0);
-  const tax = base * taxRateFor(env, country);
-  const charge = (base + tax + margin + fixed) / (1 - pct) + buf;
+  const gross = (base + margin) * (1 + vatRateFor(env, country));
+  const charge = (gross + fixed) / (1 - pct) + buf;
   return Math.ceil(charge * 100); // minor units (cents)
 }
 
