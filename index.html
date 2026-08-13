@@ -1545,7 +1545,14 @@
   async function signWithWallet(serial) {
     const eth = window.ethereum;
     if (!eth || typeof eth.request !== "function") {
-      showCardMsg("No Ethereum wallet detected. Install one (e.g. MetaMask) to attest."); return;
+      // No injected provider. Mobile browsers (esp. iOS Safari) never inject one — signing
+      // there happens inside the wallet app's own browser — so guide by platform instead of
+      // a dead "install MetaMask", and always point to the no-wallet browser path.
+      const onMobile = /Android|iP(hone|ad|od)/i.test(navigator.userAgent);
+      showCardMsg(onMobile
+        ? "On a phone, wallet signing happens inside your wallet app’s own browser. Open this page from your wallet app (MetaMask, Rainbow, Coinbase…) — or use “Certify · this browser” here, no wallet needed."
+        : "No browser wallet found. Add a wallet extension (e.g. MetaMask) and reload — or use “Certify · this browser”, no wallet needed.");
+      return;
     }
     clearCardMsg();
     // Tie this request to the current focus instance. If the user releases and
