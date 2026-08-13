@@ -178,29 +178,31 @@ export async function handlePrintShop(path, request, env, ctx) {
   if (path === "/stripe-webhook" && request.method === "POST") {
     const raw = await request.text();
     const sigHeader = request.headers.get("stripe-signature");
-    console.log("webhook-hit " + JSON.stringify({ sig: !!sigHeader, rawLen: raw.length, secretPrefix: (env.STRIPE_WEBHOOK_SECRET || "").slice(0, 9) }));
+    // TEMP diagnostic — persist each webhook's decision points to D1 so they can be
+    // inspected out-of-band (wrangler tail is unreliable for console logs). Revert later.
+    const dbg = async (info) => {
+      try { await env.DB.prepare("INSERT INTO webhook_debug (ts, info) VALUES (?, ?)").bind(Math.floor(Date.now() / 1000), JSON.stringify(info)).run(); } catch {}
+    };
     let event;
     try { event = await verifyStripe(raw, sigHeader, env.STRIPE_WEBHOOK_SECRET); }
     catch (e) {
-      console.log("webhook-verify-FAILED " + JSON.stringify({ err: String(e.message || e) }));
+      await dbg({ stage: "verify-failed", err: String(e.message || e), sig: !!sigHeader, rawLen: raw.length, secretPrefix: (env.STRIPE_WEBHOOK_SECRET || "").slice(0, 9) });
       return new Response("bad signature", { status: 400 });
     }
-    console.log("webhook-verified type=" + event.type);
+    await dbg({ stage: "verified", type: event.type });
     // Fulfil on an immediately-paid Checkout OR a delayed method (SEPA, some Klarna)
     // that later succeeds — NEVER on the bare `completed` event while still unpaid,
     // or a later payment failure would leave the seller paying for the print.
     if (event.type === "checkout.session.completed" || event.type === "checkout.session.async_payment_succeeded") {
       const s = event.data.object;
-      // TEMP diagnostic — reveals which early-return path (if any) the webhook takes.
-      console.log("webhook-diag " + JSON.stringify({
-        type: event.type,
+      await dbg({
+        stage: "matched",
         payment_status: s.payment_status,
-        hasCollected: !!s.collected_information,
         hasCollectedShip: !!(s.collected_information && s.collected_information.shipping_details),
         hasTopShip: !!s.shipping_details,
         topKeys: Object.keys(s),
         metadata: s.metadata,
-      }));
+      });
       if (s.payment_status !== "paid") return new Response("ok (awaiting payment)", { status: 200 });
       const m = s.metadata || {};
       // Newer Stripe API versions nest the collected shipping address under
