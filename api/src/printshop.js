@@ -127,16 +127,21 @@ function vatRateFor(env, country) {
   if (overrides && overrides[country] != null) return num(overrides[country]);
   return EU.has(country) ? num(env.PRICE_VAT_RATE || 0.25) : 0;
 }
-// The customer covers the seller's ex-VAT cost + margin, plus output VAT on that sale,
-// grossed up so Stripe's cut still leaves the seller whole:
-//   charge = ((base + margin) * (1 + vat) + fixed) / (1 - pct) + buffer
-// After remitting the VAT and paying Stripe, the seller nets exactly base + margin, and
-// their real (ex-VAT) cost is base — so the margin is clean profit.
+// Output VAT is due on the WHOLE VAT-inclusive price the customer pays — not just base+margin,
+// but also the parts added to recover Stripe's fee and the buffer. So we solve for a charge C
+// that leaves the seller base+margin after BOTH remitting that VAT and paying Stripe:
+//   VAT on the sale = C · vat/(1+vat)   (C is VAT-inclusive)
+//   Stripe fee      = pct · C + fixed
+//   C·(1/(1+vat) − pct) − fixed = base + margin   ⇒   C = (base + margin + fixed) / (1/(1+vat) − pct)
+// After VAT + Stripe the seller nets exactly base + margin (buffer is genuine extra cushion),
+// and their real (ex-VAT) cost is base — so the margin is clean profit. (vat = 0 for non-EU
+// exports, which reduces this to the plain Stripe gross-up.)
 function priceFor(env, base, country) {
   const pct = num(env.PRICE_PCT_FEE || 0.039), fixed = num(env.PRICE_FIXED_FEE || 0.3);
   const buf = num(env.PRICE_BUFFER || 1.5), margin = num(env.PRICE_MARGIN || 0);
-  const gross = (base + margin) * (1 + vatRateFor(env, country));
-  const charge = (gross + fixed) / (1 - pct) + buf;
+  const vat = vatRateFor(env, country);
+  const keep = 1 / (1 + vat) - pct;                 // fraction of the charge the seller keeps
+  const charge = (base + margin + fixed) / keep + buf;
   return Math.ceil(charge * 100); // minor units (cents)
 }
 

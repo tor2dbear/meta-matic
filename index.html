@@ -34,7 +34,7 @@
     --sunk:    #dcdad1;
     --ink:     #1a1c20;
     --muted:   #565a62;   /* darkened for WCAG AA (≥4.5:1 on paper/surface) */
-    --faint:   #63676f;   /* darkened for WCAG AA (was too light for small text) */
+    --faint:   #5b5f68;   /* WCAG AA on --paper (#e4e2da): ~4.9:1 for small text (.rate-note, .cue) */
     --line:    #c6c4ba;
     --line-2:  #d3d1c8;
     --signal:  #d1402c;
@@ -1736,8 +1736,12 @@
     const country = orderCountry.value, size = selectedSize(), entry = orderEntry;
     orderGo.disabled = true; setOrderMsg("Preparing your print…");
     try {
-      // 1) render the 300 dpi file and upload it so the lab can fetch it by URL
-      const blob = dataURLToBlob(exportCanvas(entry, PRINT_PX).toDataURL("image/png"));
+      // 1) render the 300 dpi file (sized for the chosen product) and upload it so the lab
+      //    can fetch it by URL. toBlob streams the PNG straight to a Blob — no multi-MB
+      //    base64 dataURL intermediate to hold in memory alongside the canvas.
+      const canvas = exportCanvas(entry, printPxFor(size));
+      const blob = await new Promise((res, rej) =>
+        canvas.toBlob(b => b ? res(b) : rej(new Error("couldn’t render the print image")), "image/png"));
       const up = await fetch(API + "/print-image?serial=" + entry.serial, { method: "POST", headers: { "Content-Type": "image/png" }, body: blob });
       const upd = up.ok ? await up.json() : null;
       if (!upd || !upd.key) throw new Error("image upload failed");
@@ -1754,10 +1758,18 @@
   });
 
   /* ---------- export a signed work as a shareable PNG ---------- */
-  // The physical product is 20×20 in, so 300 dpi print resolution = 20·300 = 6000 px.
-  // The work is procedural/vector, so it renders crisp at any size — no quality loss.
-  const PRINT_PX = 6000;
-  // S = canvas size in px. Default 1400 (a shareable image); PRINT_PX renders the
+  // Print resolution = inches · 300 dpi, per size (20×20 → 6000 px, 12×12 → 3600 px) — so we
+  // never allocate a 6000² canvas for the small size. iOS/Safari cap a canvas's area
+  // (~16.7 Mpx ≈ 4096²); above it toDataURL/toBlob return blank, which would silently break
+  // print ordering. So cap the client render to a device-safe max — the largest size falls
+  // back to a slightly lower dpi on constrained devices instead of failing outright. The work
+  // is procedural/vector, so it stays crisp at any size.
+  function printPxFor(sizeId) {
+    const inches = parseInt(sizeId, 10) || 20;   // "20x20" → 20, "12x12" → 12
+    const maxPx = isIOS ? 4096 : 6000;           // read isIOS lazily (defined later in this IIFE)
+    return Math.min(inches * 300, maxPx);
+  }
+  // S = canvas size in px. Default 1400 (a shareable image); printPxFor(size) renders the
   // print-ready file. Text/margins scale with k so the composition is identical at any
   // size — drawWork scales itself from `size`.
   function exportCanvas(entry, S) {
@@ -1848,10 +1860,11 @@
     const entry = state.minted.find(e => e.uid === uid);
     if (entry) downloadCanvas(exportCanvas(entry), "meta-matic-" + entry.serial + ".png");
   }
-  // v2.0 print: a 3600×3600 (12 in @ 300 dpi) file of your certified work.
+  // High-res print file (largest size @ 300 dpi, capped to a device-safe canvas so it never
+  // returns blank on iOS): 6000 px on desktop, 4096 px on iOS.
   function downloadPrint(uid) {
     const entry = state.minted.find(e => e.uid === uid);
-    if (entry) downloadCanvas(exportCanvas(entry, PRINT_PX), "meta-matic-print-" + entry.serial + ".png");
+    if (entry) downloadCanvas(exportCanvas(entry, printPxFor("20x20")), "meta-matic-print-" + entry.serial + ".png");
   }
 
   /* ---------- focus / inspect (click -> freeze + enlarge -> deliberate sign) ---------- */
