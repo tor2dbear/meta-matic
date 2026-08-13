@@ -264,6 +264,12 @@
   .fm-fine { font-size: 10px; letter-spacing: 0.04em; color: var(--faint); margin: 4px 0 0; }
   .fm-msg { font-size: 11.5px; line-height: 1.5; color: var(--signal); margin: 6px 0 0; }
   .fm-msg[hidden] { display: none; }
+  /* Post-certify confirmation panel (replaces the actions on a successful sign) */
+  .fm-success[hidden] { display: none; }
+  .fm-success-t { font-size: 12.5px; line-height: 1.55; color: var(--ink); margin: 2px 0 10px; }
+  .fm-success-t b { color: var(--signal); font-weight: 700; }
+  .fm-success-actions { display: flex; flex-direction: column; gap: 6px; }
+  .fm-success-actions button { width: 100%; }
   @media (prefers-reduced-motion: no-preference) {
     .focus-card { animation: focusin .26s cubic-bezier(.2,.7,.3,1); }
   }
@@ -521,6 +527,15 @@
           off-chain signature (personal_sign) — no gas, no chain. Save your certified
           works as images from “Certified · you”.</p>
         <p class="fm-msg" id="f-msg" hidden></p>
+        <!-- Post-certify confirmation: names WHERE the work landed and offers a jump there,
+             so signing never feels like the work just vanished. -->
+        <div class="fm-success" id="f-success" hidden>
+          <p class="fm-success-t" id="f-success-t"></p>
+          <div class="fm-success-actions">
+            <button class="primary" id="f-view-works" type="button">View your works ↗</button>
+            <button id="f-keep" type="button">Keep watching</button>
+          </div>
+        </div>
       </div>
     </div>
   </div>
@@ -1496,8 +1511,7 @@
 
     if (!net) {   // offline / no backend: exclusivity can't be enforced, keep a local copy
       mint(serial, { method, wallet: walletEntry(walletData) });
-      showSeam("✓ CERTIFIED · № " + serial.toLocaleString("en-US") + " · saved locally (offline)", 2.6);
-      closeFocus(true);
+      showCertSuccess(serial, method, true);
       return;
     }
     if (!ok) {   // server reachable but rejected — do NOT mint a false certificate
@@ -1508,9 +1522,7 @@
       mint(serial, { method, wallet: walletEntry(walletData) });
       if (typeof data.total === "number") { state.globalTotal = data.total; updateGlobalChip(); }
       refreshClaimed();
-      showSeam((method === "wallet" ? "⛓ CERTIFIED · " + shortAddr(walletData.address) + " · " : "✓ CERTIFIED · ") +
-        "№ " + serial.toLocaleString("en-US") + " is yours", 2.8);
-      closeFocus(true);
+      showCertSuccess(serial, method, false);
       return;
     }
     // Taken — someone was first. Stay on the card and show who.
@@ -1957,10 +1969,39 @@
     }
 
     clearCardMsg();
+    resetFocusCard();                 // restore actions/notes; clear any prior success panel
     focusEl.hidden = false;
     document.body.style.overflow = "hidden"; // lock background scroll behind the modal
     focusCard.scrollTop = 0; focusEl.scrollTop = 0; // reopen at the top (card is the scroll container on short screens)
     document.getElementById("f-release").focus({ preventScroll: true }); // always present; certify buttons may be hidden if claimed
+  }
+  // Swap the card into its post-certify state: the confirmation panel replaces the
+  // certify/release actions and names WHERE the work landed ("Certified · you", ↗ top-right).
+  function showCertSuccess(serial, method, offline) {
+    const actions = focusCard.querySelector(".fm-actions");
+    const note = focusCard.querySelector(".fm-note");
+    const fine = focusCard.querySelector(".fm-fine");
+    if (actions) actions.hidden = true;
+    if (note) note.hidden = true;
+    if (fine) fine.hidden = true;
+    clearCardMsg();
+    const no = "№ " + serial.toLocaleString("en-US");
+    document.getElementById("f-success-t").innerHTML =
+      (method === "wallet" ? "⛓ " : "✓ ") + "<b>Signed.</b> " + no +
+      (offline ? " saved locally (offline)." : " is yours.") +
+      "<br>It’s in <b>“Certified · you”</b> ↗ — top-right. Open it to save or order a print.";
+    document.getElementById("f-success").hidden = false;
+    document.getElementById("f-view-works").focus({ preventScroll: true });
+  }
+  // Undo showCertSuccess so the card reopens clean for the next work.
+  function resetFocusCard() {
+    const actions = focusCard.querySelector(".fm-actions");
+    const note = focusCard.querySelector(".fm-note");
+    const fine = focusCard.querySelector(".fm-fine");
+    if (actions) actions.hidden = false;
+    if (note) note.hidden = false;
+    if (fine) fine.hidden = false;
+    document.getElementById("f-success").hidden = true;
   }
   function closeFocus(silent) {
     focusEl.hidden = true;
@@ -1983,6 +2024,10 @@
     if (focusSerial != null) signWithWallet(focusSerial);
   });
   document.getElementById("f-release").addEventListener("click", () => closeFocus(false));
+  // Success panel: jump straight to the drawer (newest cert sits highlighted at the top),
+  // or dismiss and keep watching the machine.
+  document.getElementById("f-view-works").addEventListener("click", () => { closeFocus(true); setDrawer(true); });
+  document.getElementById("f-keep").addEventListener("click", () => closeFocus(false));
   focusEl.addEventListener("click", e => { if (e.target === focusEl) closeFocus(false); });
 
   /* ---------- controls ---------- */
