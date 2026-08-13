@@ -39,6 +39,11 @@
     --line-2:  #d3d1c8;
     --signal:  #d1402c;
     --signal-ink: #d1402c;  /* filled-button bg — always AA (≥4.5:1) with white text, both themes */
+    /* Canonical "print" colours — deterministic black-on-light for the artifact you
+       certify/own: the exported/printed file AND the focus/sign modal that previews it.
+       Defined only here (never overridden per theme) so they stay light in dark mode too. */
+    --print-paper: #e4e2da;
+    --print-ink:   #1a1c20;
     --blue:    #25428a;
     --ink-rgb: 26, 28, 32;
     color-scheme: light;
@@ -238,7 +243,8 @@
   }
   .focus-card canvas {
     width: min(300px, 44vw); height: min(300px, 44vw); flex: 0 0 auto;
-    border: 1px solid var(--line-2); background: var(--paper);
+    /* the plate previews the artifact you certify — always black-on-light, both themes */
+    border: 1px solid var(--line-2); background: var(--print-paper);
   }
   .focus-meta { min-width: 200px; display: flex; flex-direction: column; gap: 11px; }
   .fm-serial { font-size: 21px; letter-spacing: -0.01em; }
@@ -1927,8 +1933,12 @@
     focusCanvas.style.width = cssSize + "px"; focusCanvas.style.height = cssSize + "px";
     focusCanvas.width = Math.round(cssSize * d); focusCanvas.height = Math.round(cssSize * d);
     fctx.setTransform(d, 0, 0, d, 0, 0);
+    // Deterministic black-on-light: paint the plate explicitly so the modal previews
+    // the actual artifact (certificate/print), not the theme-inverted belt art.
     fctx.clearRect(0, 0, cssSize, cssSize);
-    drawWork(fctx, cssSize / 2, cssSize / 2, cssSize, c.u, c.v, css("--ink"));
+    fctx.fillStyle = css("--print-paper");
+    fctx.fillRect(0, 0, cssSize, cssSize);
+    drawWork(fctx, cssSize / 2, cssSize / 2, cssSize, c.u, c.v, css("--print-ink"));
 
     // Global "signed N times" line. Hidden when offline (page stays fully usable).
     const seq = ++signedReqSeq;
