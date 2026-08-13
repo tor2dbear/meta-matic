@@ -249,7 +249,11 @@
   .fm-row.wide[hidden] { display: none; }
   .fm-row.wide b { color: var(--blue); font-size: 12px; font-variant-numeric: tabular-nums; }
   .fm-note { font-size: 11.5px; color: var(--muted); line-height: 1.6; margin: 3px 0 5px; }
-  .fm-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+  .fm-actions { display: flex; flex-direction: column; gap: 8px; }
+  .certify-wrap { position: relative; }
+  #f-certify, #f-release { width: 100%; }
+  .certify-menu { position: absolute; left: 0; right: 0; top: calc(100% + 5px); }
+  .certify-opt { padding: 12px 14px; font-size: 12px; letter-spacing: 0.04em; }
   .fm-fine { font-size: 10px; letter-spacing: 0.04em; color: var(--faint); margin: 4px 0 0; }
   .fm-msg { font-size: 11.5px; line-height: 1.5; color: var(--signal); margin: 6px 0 0; }
   .fm-msg[hidden] { display: none; }
@@ -389,30 +393,30 @@
   .cert .mark-no { color: var(--blue); font-weight: 700; font-size: 10px; letter-spacing: 0.08em; margin-right: 7px; }
   .cert.newest { background: color-mix(in srgb, var(--signal) 7%, var(--paper)); }
   .cert .quip { font-size: 10px; color: var(--muted); line-height: 1.5; margin-top: 4px; padding-top: 5px; border-top: 1px dashed var(--line-2); }
-  .cert-actions { display: flex; align-items: stretch; gap: 6px; margin-top: 8px; align-self: stretch; flex-wrap: wrap; }
   .cert-wrap { display: flex; flex-direction: column; }
-  /* primary: order a physical print — filled, so it reads as the main action */
+  /* actions stack full-width: primary "Order a print" over a full-width "Download" */
+  .cert-actions { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; align-self: stretch; }
   .cert-order {
-    flex: 1 1 auto; padding: 7px 12px; font-size: 10px; letter-spacing: 0.08em; font-weight: 600;
+    width: 100%; padding: 9px 12px; font-size: 10.5px; letter-spacing: 0.08em; font-weight: 600;
     background: var(--signal); color: #fff; border-color: var(--signal);
   }
   .cert-order:hover { background: color-mix(in srgb, var(--signal) 85%, #000); border-color: color-mix(in srgb, var(--signal) 85%, #000); }
-  /* secondary: one Download button that opens a resolution menu (screen / print) */
-  .cert-dl { position: relative; flex: 0 0 auto; display: flex; }
-  .cert-download { padding: 7px 12px; font-size: 10px; letter-spacing: 0.08em; border-color: var(--line); }
-  .cert-dl-menu {
-    position: absolute; right: 0; bottom: calc(100% + 5px); z-index: 6; min-width: 168px;
-    flex-direction: column; background: var(--paper);
-    border: 1px solid var(--line); border-radius: 3px; box-shadow: 0 8px 24px rgba(0,0,0,.28); overflow: hidden;
+  .cert-dl { position: relative; width: 100%; }
+  .cert-download { width: 100%; padding: 9px 12px; font-size: 10.5px; letter-spacing: 0.08em; border-color: var(--line); }
+  .cert-dl-menu { position: absolute; left: 0; right: 0; bottom: calc(100% + 5px); }
+  /* shared popup-menu look for the Download (resolution) and Certify (method) menus */
+  .cert-dl-menu, .certify-menu {
+    z-index: 6; flex-direction: column; background: var(--paper);
+    border: 1px solid var(--line); border-radius: 3px; box-shadow: 0 8px 24px rgba(0,0,0,.30); overflow: hidden;
   }
-  .cert-dl-menu[hidden] { display: none; }          /* the class's display must not override hidden */
-  .cert-dl-menu:not([hidden]) { display: flex; }
-  .cert-dl-opt {
-    padding: 9px 12px; font-size: 10px; letter-spacing: 0.05em; text-align: left;
-    border: 0; border-radius: 0; background: transparent;
+  .cert-dl-menu[hidden], .certify-menu[hidden] { display: none; }   /* class display must not beat [hidden] */
+  .cert-dl-menu:not([hidden]), .certify-menu:not([hidden]) { display: flex; }
+  .cert-dl-opt, .certify-opt {
+    border: 0; border-radius: 0; background: transparent; text-align: left; color: var(--ink);
   }
-  .cert-dl-opt + .cert-dl-opt { border-top: 1px solid var(--line-2); }
-  .cert-dl-opt:hover { background: color-mix(in srgb, var(--signal) 12%, var(--paper)); }
+  .cert-dl-opt { padding: 10px 12px; font-size: 10.5px; letter-spacing: 0.05em; }
+  .cert-dl-opt + .cert-dl-opt, .certify-opt + .certify-opt { border-top: 1px solid var(--line-2); }
+  .cert-dl-opt:hover, .certify-opt:hover { background: var(--signal); color: #fff; }   /* clear, unmissable hover */
 
   /* Order-a-print dialog (v2.1b) */
   .order { position: fixed; inset: 0; z-index: 60; display: flex; align-items: center; justify-content: center;
@@ -485,8 +489,13 @@
         <p class="fm-note">Inspect the work. The machine keeps drawing while you look.
           Certify it to make it <em>yours</em> — one owner per work.</p>
         <div class="fm-actions">
-          <button class="primary" id="f-sign">Certify · this browser</button>
-          <button id="f-wallet">⛓ Certify · with wallet</button>
+          <div class="certify-wrap">
+            <button class="primary" id="f-certify" aria-haspopup="true" aria-expanded="false">Certify this work</button>
+            <div class="certify-menu" id="f-certify-menu" hidden>
+              <button class="certify-opt" id="f-sign">Certify · this browser</button>
+              <button class="certify-opt" id="f-wallet">Certify · with wallet</button>
+            </div>
+          </div>
           <button id="f-release">Release · keep looking</button>
         </div>
         <p class="fm-fine">One certificate per work — first to sign. A wallet adds a free,
@@ -822,7 +831,10 @@
         ctx.moveTo(bx[s] + nx * wa, by[s] + ny * wa); ctx.lineTo(bx[s + 1] + nx * wb, by[s + 1] + ny * wb);
         ctx.lineTo(bx[s + 1] - nx * wb, by[s + 1] - ny * wb); ctx.lineTo(bx[s] - nx * wa, by[s] - ny * wa);
       }
-      if (size >= 600) { for (let s = 0; s <= steps; s++) { ctx.moveTo(bx[s] + half[s], by[s]); ctx.arc(bx[s], by[s], half[s], 0, TAU); } }
+      // Round joint-fills for large static renders (export/print). They MUST wind the same
+      // way as the ribbon quads, or the nonzero fill rule cancels them against the ribbon at
+      // every joint — which renders the strokes as a dashed/stitched line. `true` = match.
+      if (size >= 600) { for (let s = 0; s <= steps; s++) { ctx.moveTo(bx[s] + half[s], by[s]); ctx.arc(bx[s], by[s], half[s], 0, TAU, true); } }
       ctx.globalAlpha = alpha;
       ctx.fill();
     }
@@ -1575,7 +1587,7 @@
             '<button class="cert-download" data-uid="' + m.uid + '" aria-haspopup="true" aria-expanded="false" title="Download a PNG of your work">↓ Download</button>' +
             '<div class="cert-dl-menu" hidden>' +
               '<button class="cert-dl-opt" data-uid="' + m.uid + '" data-res="screen">Screen · 1400 px</button>' +
-              '<button class="cert-dl-opt" data-uid="' + m.uid + '" data-res="print">Print · 300 dpi · 3600 px</button>' +
+              '<button class="cert-dl-opt" data-uid="' + m.uid + '" data-res="print">Print · 300 dpi · 6000 px</button>' +
             '</div>' +
           '</div>' +
         '</div>';
@@ -1641,7 +1653,7 @@
     orderGo.disabled = true; setOrderMsg("Preparing your print…");
     try {
       // 1) render the 300 dpi file and upload it so the lab can fetch it by URL
-      const blob = dataURLToBlob(exportCanvas(entry, 3600).toDataURL("image/png"));
+      const blob = dataURLToBlob(exportCanvas(entry, PRINT_PX).toDataURL("image/png"));
       const up = await fetch(API + "/print-image?serial=" + entry.serial, { method: "POST", headers: { "Content-Type": "image/png" }, body: blob });
       const upd = up.ok ? await up.json() : null;
       if (!upd || !upd.key) throw new Error("image upload failed");
@@ -1658,9 +1670,12 @@
   });
 
   /* ---------- export a signed work as a shareable PNG ---------- */
-  // S = canvas size in px. Default 1400 (a shareable image); 3600 renders a
-  // print-ready file (12×12 in at 300 dpi). Text/margins scale with k so the
-  // composition is identical at any size — drawWork scales itself from `size`.
+  // The physical product is 20×20 in, so 300 dpi print resolution = 20·300 = 6000 px.
+  // The work is procedural/vector, so it renders crisp at any size — no quality loss.
+  const PRINT_PX = 6000;
+  // S = canvas size in px. Default 1400 (a shareable image); PRINT_PX renders the
+  // print-ready file. Text/margins scale with k so the composition is identical at any
+  // size — drawWork scales itself from `size`.
   function exportCanvas(entry, S) {
     S = S || 1400;
     const k = S / 1400;
@@ -1747,7 +1762,7 @@
   // v2.0 print: a 3600×3600 (12 in @ 300 dpi) file of your certified work.
   function downloadPrint(uid) {
     const entry = state.minted.find(e => e.uid === uid);
-    if (entry) downloadCanvas(exportCanvas(entry, 3600), "meta-matic-print-" + entry.serial + ".png");
+    if (entry) downloadCanvas(exportCanvas(entry, PRINT_PX), "meta-matic-print-" + entry.serial + ".png");
   }
 
   /* ---------- focus / inspect (click -> freeze + enlarge -> deliberate sign) ---------- */
@@ -1766,7 +1781,19 @@
   // The gut-punch: how many others already signed this "unique" pick.
   const fSign = document.getElementById("f-sign");
   const fWallet = document.getElementById("f-wallet");
-  function setCertifyEnabled(on) { fSign.hidden = !on; fWallet.hidden = !on; }
+  const fCertify = document.getElementById("f-certify");
+  const fCertifyMenu = document.getElementById("f-certify-menu");
+  function closeCertifyMenu() { fCertifyMenu.hidden = true; fCertify.setAttribute("aria-expanded", "false"); }
+  // One primary "Certify" button reveals the two methods; availability toggles the button
+  // (the browser/wallet claim handlers stay bound to #f-sign / #f-wallet inside the menu).
+  function setCertifyEnabled(on) { fCertify.hidden = !on; if (!on) closeCertifyMenu(); }
+  fCertify.addEventListener("click", () => {
+    const willOpen = fCertifyMenu.hidden;
+    fCertifyMenu.hidden = !willOpen;
+    fCertify.setAttribute("aria-expanded", String(willOpen));
+  });
+  fCertifyMenu.addEventListener("click", () => closeCertifyMenu());   // picking a method dismisses the menu
+  focusCard.addEventListener("click", e => { if (!e.target.closest(".certify-wrap")) closeCertifyMenu(); });
   function timeAgo(ts) {
     if (!ts) return "just now";
     const s = Math.max(0, (Date.now() - ts) / 1000);
