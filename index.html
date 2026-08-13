@@ -38,6 +38,7 @@
     --line:    #c6c4ba;
     --line-2:  #d3d1c8;
     --signal:  #d1402c;
+    --signal-ink: #d1402c;  /* filled-button bg — always AA (≥4.5:1) with white text, both themes */
     --blue:    #25428a;
     --ink-rgb: 26, 28, 32;
     color-scheme: light;
@@ -50,10 +51,10 @@
       --sunk:    #0d0e11;
       --ink:     #e7e4da;
       --muted:   #83868f;
-      --faint:   #565962;
+      --faint:   #85888f;   /* lightened for WCAG AA on dark surface (was 2.43:1) */
       --line:    #2a2c32;
       --line-2:  #23252a;
-      --signal:  #ef5a44;
+      --signal:  #ef5a44;   /* bright accent (dots, thumbs, focus) — not used as a text bg */
       --blue:    #6f8fe0;
       --ink-rgb: 231, 228, 218;
       color-scheme: dark;
@@ -66,10 +67,10 @@
     --sunk:    #0d0e11;
     --ink:     #e7e4da;
     --muted:   #83868f;
-    --faint:   #565962;
+    --faint:   #85888f;   /* lightened for WCAG AA on dark surface (was 2.43:1) */
     --line:    #2a2c32;
     --line-2:  #23252a;
-    --signal:  #ef5a44;
+    --signal:  #ef5a44;   /* bright accent (dots, thumbs, focus) — not used as a text bg */
     --blue:    #6f8fe0;
     --ink-rgb: 231, 228, 218;
     color-scheme: dark;
@@ -179,7 +180,7 @@
   .seam {
     position: absolute; top: 14px; left: 50%; transform: translateX(-50%);
     z-index: 4; display: flex; align-items: center; gap: 8px; /* belt-view banner; wallet notices now render inside the focus card */
-    background: var(--signal); color: #fff;
+    background: var(--signal-ink); color: #fff;
     padding: 5px 12px; font-size: 11px; letter-spacing: 0.06em;
     border-radius: 2px; opacity: 0; transition: opacity .25s ease;
     box-shadow: 0 4px 18px rgba(0,0,0,.22);
@@ -282,8 +283,8 @@
     padding: 9px 15px; transition: background .12s, color .12s;
   }
   button:hover { background: var(--ink); color: var(--paper); }
-  button.primary { background: var(--signal); border-color: var(--signal); color: #fff; }
-  button.primary:hover { background: color-mix(in srgb, var(--signal) 82%, #000); }
+  button.primary { background: var(--signal-ink); border-color: var(--signal-ink); color: #fff; }
+  button.primary:hover { background: color-mix(in srgb, var(--signal-ink) 82%, #000); }
   button:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
   button.ghost { border-color: var(--line); }
 
@@ -398,9 +399,9 @@
   .cert-actions { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; align-self: stretch; }
   .cert-order {
     width: 100%; padding: 9px 12px; font-size: 10.5px; letter-spacing: 0.08em; font-weight: 600;
-    background: var(--signal); color: #fff; border-color: var(--signal);
+    background: var(--signal-ink); color: #fff; border-color: var(--signal-ink);
   }
-  .cert-order:hover { background: color-mix(in srgb, var(--signal) 85%, #000); border-color: color-mix(in srgb, var(--signal) 85%, #000); }
+  .cert-order:hover { background: color-mix(in srgb, var(--signal-ink) 85%, #000); border-color: color-mix(in srgb, var(--signal-ink) 85%, #000); }
   .cert-dl { position: relative; width: 100%; }
   .cert-download { width: 100%; padding: 9px 12px; font-size: 10.5px; letter-spacing: 0.08em; border-color: var(--line); }
   .cert-dl-menu { position: absolute; left: 0; right: 0; bottom: calc(100% + 5px); }
@@ -416,7 +417,7 @@
   }
   .cert-dl-opt { padding: 10px 12px; font-size: 10.5px; letter-spacing: 0.05em; }
   .cert-dl-opt + .cert-dl-opt, .certify-opt + .certify-opt { border-top: 1px solid var(--line-2); }
-  .cert-dl-opt:hover, .certify-opt:hover { background: var(--signal); color: #fff; }   /* clear, unmissable hover */
+  .cert-dl-opt:hover, .certify-opt:hover { background: var(--signal-ink); color: #fff; }   /* clear, unmissable hover */
 
   /* Order-a-print dialog (v2.1b) */
   .order { position: fixed; inset: 0; z-index: 60; display: flex; align-items: center; justify-content: center;
@@ -1590,7 +1591,13 @@
       wrap.className = "cert" + (idx === 0 ? " newest" : "");
       const cv = document.createElement("canvas");
       cv.width = 128; cv.height = 128;
-      drawWork(cv.getContext("2d"), 64, 64, 128, m.u, m.v, css("--ink"), 1, m.gen);
+      // Paint the plate's ground explicitly (theme-aware) instead of relying on the
+      // canvas element's CSS background showing through — so the thumbnail always
+      // renders, and inverts with the theme (light-on-dark in dark mode).
+      const tctx = cv.getContext("2d");
+      tctx.fillStyle = css("--surface");
+      tctx.fillRect(0, 0, 128, 128);
+      drawWork(tctx, 64, 64, 128, m.u, m.v, css("--ink"), 1, m.gen);
       const meta = document.createElement("div");
       meta.className = "meta";
       meta.innerHTML =
@@ -1743,7 +1750,12 @@
     const c = coordFor(serial);
     const cv = document.createElement("canvas"); cv.width = S; cv.height = S;
     const x = cv.getContext("2d");
-    const paper = css("--paper"), ink = css("--ink"), muted = css("--muted"), faint = css("--faint"), signal = css("--signal");
+    // Saved/printed files are ALWAYS the canonical light "technical paper" — black on
+    // light — never theme-dependent. On-screen art (belt, thumbnails) inverts with the
+    // OS theme, but an exported/ordered file must be deterministic: the same serial
+    // yields the same print whether the browser is in light or dark mode. So we hard-code
+    // the light palette here instead of reading the live (theme-dependent) CSS variables.
+    const paper = "#e4e2da", ink = "#1a1c20", muted = "#565a62", faint = "#63676f", signal = "#d1402c";
     x.fillStyle = paper; x.fillRect(0, 0, S, S);
 
     // Wordmark sits in the top margin band, caption in the bottom band, and the work is
