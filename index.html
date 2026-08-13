@@ -402,9 +402,11 @@
   .cert-download { padding: 7px 12px; font-size: 10px; letter-spacing: 0.08em; border-color: var(--line); }
   .cert-dl-menu {
     position: absolute; right: 0; bottom: calc(100% + 5px); z-index: 6; min-width: 168px;
-    display: flex; flex-direction: column; background: var(--paper);
+    flex-direction: column; background: var(--paper);
     border: 1px solid var(--line); border-radius: 3px; box-shadow: 0 8px 24px rgba(0,0,0,.28); overflow: hidden;
   }
+  .cert-dl-menu[hidden] { display: none; }          /* the class's display must not override hidden */
+  .cert-dl-menu:not([hidden]) { display: flex; }
   .cert-dl-opt {
     padding: 9px 12px; font-size: 10px; letter-spacing: 0.05em; text-align: left;
     border: 0; border-radius: 0; background: transparent;
