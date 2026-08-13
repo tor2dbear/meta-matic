@@ -1,79 +1,39 @@
 ---
-title: "Print shop"
-status: now
-tags: [commerce]
-updated: 2026-08-12
+title: "Print shop — order a physical giclée"
+status: done
+tags: [commerce, print]
+updated: 2026-08-13
 ---
 
 ## Goal
-Let a collector order their certified work as a physical print — the ultimate "pay
-to own something that was never original." Constraint: **zero fixed cost.** No
-subscription; every cost (print + shipping + payment fee) is covered per-order by the
-customer. Expected volume is ~0, so idle cost must be $0.
+Let a holder of a certified work order a real fine-art print of it, priced live per
+country, with the seller never out of pocket and payment/fulfilment fully automated.
 
-## Delivered — v2.0 (download a print file)
-A "↓ Print · 300 dpi" button on each of your certificates ("Certified · you"),
-alongside "Save image". Renders the work at **3600×3600 px (12 in @ 300 dpi)** and
-downloads it — print-ready at any framer. Gated to your own certificates (the drawer
-only lists yours). Reuses `exportCanvas(entry, S)` (text/margins scale with size).
-Nearly free, no payment flow; ~90% of the experience and a demand signal.
+## Delivered
+End-to-end shop on a Cloudflare Worker + D1 + R2, fronted by the single-page site:
 
-## Research — v2.1 (a real shop)
+- **Flow:** certify → "Order a print" → 6000 px render uploaded to R2 → Stripe Checkout
+  (hosted) → on paid webhook, a Prodigi order is created against the shipping address.
+  Exactly-once fulfilment via a D1 `print_orders` row + Prodigi `Idempotency-Key`, so a
+  Stripe retry or a mid-flight crash never double-orders or strands a paid order.
+- **Pricing (never out of pocket), modelled for a Swedish VAT-registered B2C seller:**
+  `charge = ((base + margin)·(1 + vat) + fixed)/(1 − pct) + buffer`. `base` = Prodigi
+  items + shipping (ex-VAT; input VAT is reclaimed). `vat` = output VAT the seller
+  remits — home rate on EU sales, 0 % on non-EU exports. All levers in `wrangler.toml`
+  (`PRICE_*`, `PRICE_VAT_RATE`, `PRICE_VAT_RATES`).
+- **Two sizes:** 20×20″ and 12×12″, config-driven (`PRINT_SIZES`), each quoted, charged
+  and ordered on its own SKU. Order dialog shows a live price per size for the chosen
+  country via a session-free `/print-quote`.
+- **Return-from-Stripe confirmation:** returning to `/?print=ok` shows a clear
+  "✓ Print ordered" modal (replaced the easy-to-miss banner; no email promised that we
+  don't send).
+- **Export fixes:** wordmark matches the site (bold sans, ∞ in signal), uniform margins,
+  and the ribbon's joint-fills wound to match the strokes (killed the dashed/stitched
+  look at print resolution).
+- **Live:** Prodigi production API, live Stripe keys + live webhook, Budget shipping.
 
-### Providers (all confirmed no-subscription, pay-per-order)
-- **Prodigi** — *recommended.* No setup fee, no monthly fee, no subscription; you pay
-  only when an order goes to print (base product + shipping). Full **print API** for
-  automated fulfilment + a **sandbox** for testing. Fine Art Trade Guild-approved →
-  museum-quality giclée. API access has no extra monthly fee. Best fit for an art piece.
-- **Gelato** — also free / pay-per-order, but *API-level integration* skews toward the
-  paid Platinum tier; Gelato+ is $29.99/mo. Weaker fit given the no-subscription rule.
-- **Payment: Stripe** — no monthly fee, per-transaction only (~2.9% + fixed). Checkout
-  is free, hosted, collects the shipping address and can compute shipping. `$0` idle.
-
-### Zero-fixed-cost architecture (fully automated)
-Everything is pay-per-use, so idle cost is `$0`:
-1. Customer clicks "Order print" on a certified work.
-2. Client renders the 3600px PNG (v2.0's `exportCanvas`) and uploads it to the Worker
-   → **R2** (free tier, no egress) → a fetchable image URL.
-3. Worker fetches a live **Prodigi quote** (product + shipping to the destination),
-   adds the Stripe fee + a small buffer, and opens a **Stripe Checkout Session** at
-   that price → the customer covers 100% of cost. Collect the address in Checkout.
-4. Stripe webhook → Worker → create the **Prodigi order** (SKU + R2 image URL +
-   address). Prodigi prints & ships; customer gets tracking.
-- Backend = the existing Cloudflare Worker + Stripe webhook + R2. Secrets (Stripe +
-  Prodigi keys) via `wrangler secret`. No new vendor, no subscription.
-
-### Leaner alternative (matches "~0 orders" honestly)
-- **v2.1a — manual fulfilment.** "Order print" → a **Stripe Payment Link** (fixed price
-  set to cover worst-case product + shipping + fee) or a short form. When an order comes
-  in, place it by hand in Prodigi's dashboard (upload the PNG, enter the address). Zero
-  pipeline to build/maintain, `$0` idle. Best first step at 0 expected orders; upgrade to
-  the automated flow only if orders actually materialise.
-
-## Delivered — v2.1b (built, sandbox-first)
-Decision: **worldwide, automated, live-priced** (not the manual v2.1a). Built in
-`api/src/printshop.js` + the frontend "🖼 Order print" flow:
-
-- Client renders the 300 dpi PNG → `/print-image` (R2) → `/print-checkout` (live
-  **Prodigi quote** for the chosen country → **Stripe Checkout**) → `/stripe-webhook`
-  (signature-verified) → **Prodigi order**. Dependency-free (fetch + WebCrypto).
-- Priced so the customer covers 100% of cost, per destination — never out of pocket,
-  `$0` idle. The button only appears once the backend reports it's configured.
-
-**Left to go live (all on the owner):** create Stripe + Prodigi accounts, pick the
-Prodigi SKU + currency, `wrangler r2 bucket create meta-matic-prints`, set the three
-secrets, add the Stripe webhook, test in sandbox (test card 4242…), then flip
-`PRODIGI_BASE` + live keys. Full checklist in `api/README.md`.
-
-## Open questions
-- Which exact Prodigi SKU / size(s)? (One square fine-art print to start; could offer
-  a size picker later.)
-- International VAT/duties: leave to the recipient (current), or add Stripe Tax later?
-
-## Resolved
-- **Idempotency (was a webhook double-order risk).** Now enforced by D1: the webhook
-  claims the Stripe `session.id` in a `print_orders` PRIMARY KEY before ordering, so a
-  Stripe retry can't create a second seller-charged order; `merchantReference = session.id`
-  is a Prodigi-side backstop. Ships in `schema.sql`.
-- **Webhook-secret rotation.** `verifyStripe` now accepts any of the multiple `v1`
-  signatures Stripe sends during a secret rotation, so valid webhooks aren't rejected.
+## Notes / possible follow-ups
+- VAT rate defaults to 25 %; confirm the art rate (Sweden's 12 % can apply to an
+  artist's own work) and the EU OSS threshold with an accountant — both tunable via env.
+- Drop the temporary D1 `webhook_debug` table (left behind after the signature-mismatch
+  debugging; nothing writes to it now).

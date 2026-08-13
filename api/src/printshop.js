@@ -99,26 +99,60 @@ async function prodigi(env, path, body, idempotencyKey) {
   return data;
 }
 // One print of the configured SKU, sized to the country. Returns cost in PRINT_CURRENCY.
-async function quotePrint(env, country) {
+async function quotePrint(env, country, sku) {
   const q = await prodigi(env, "quotes", {
     shippingMethod: env.PRODIGI_SHIPPING || "Standard",
     destinationCountryCode: country,
     currencyCode: env.PRINT_CURRENCY || "EUR",
-    items: [{ sku: env.PRODIGI_SKU, copies: 1, attributes: {}, assets: [{ printArea: "default" }] }],
+    items: [{ sku: sku || env.PRODIGI_SKU, copies: 1, attributes: {}, assets: [{ printArea: "default" }] }],
   });
   const cs = q.quotes && q.quotes[0] && q.quotes[0].costSummary;
   if (!cs) throw new Error("no quote returned (check SKU / country)");
-  // items + shipping + tax (any that are present)
-  const cost = num(cs.items && cs.items.amount) + num(cs.shipping && cs.shipping.amount) + num(cs.tax && cs.tax.amount);
-  if (cost <= 0) throw new Error("quote returned zero cost");
-  return cost;
+  // Seller's real cost = items + shipping, EX-VAT. Any VAT Prodigi lists is input VAT the
+  // (VAT-registered) seller reclaims or is reverse-charged, so it isn't a cost — excluded.
+  const base = num(cs.items && cs.items.amount) + num(cs.shipping && cs.shipping.amount);
+  if (base <= 0) throw new Error("quote returned zero cost");
+  return base;
 }
-// Gross up so that after Stripe's cut the seller still nets the full Prodigi cost:
-//   charge - (charge*pct + fixed) >= cost   ->   charge = (cost + fixed)/(1 - pct) + buffer
-function priceFor(env, cost) {
-  const pct = num(env.PRICE_PCT_FEE || 0.039), fixed = num(env.PRICE_FIXED_FEE || 0.3), buf = num(env.PRICE_BUFFER || 1.5);
-  const charge = (cost + fixed) / (1 - pct) + buf;
+// OUTPUT VAT the (Swedish, VAT-registered) seller must charge a B2C customer and remit.
+// Under the EU distance-selling (OSS) threshold this is the seller's home rate on all EU
+// sales; sales outside the EU are zero-rated exports (the buyer pays any import VAT/duty).
+// So EU destinations get PRICE_VAT_RATE, everything else 0. Override any country via
+// PRICE_VAT_RATES (JSON, e.g. {"GB":0.2,"SE":0.12}). Confirm the rate (art can be
+// reduced-rated) and the OSS threshold with your accountant.
+const EU = new Set(["AT","BE","BG","HR","CY","CZ","DK","EE","FI","FR","DE","GR","HU","IE","IT","LV","LT","LU","MT","NL","PL","PT","RO","SK","SI","ES","SE"]);
+function vatRateFor(env, country) {
+  let overrides = null;
+  try { overrides = env.PRICE_VAT_RATES ? JSON.parse(env.PRICE_VAT_RATES) : null; } catch { overrides = null; }
+  if (overrides && overrides[country] != null) return num(overrides[country]);
+  return EU.has(country) ? num(env.PRICE_VAT_RATE || 0.25) : 0;
+}
+// The customer covers the seller's ex-VAT cost + margin, plus output VAT on that sale,
+// grossed up so Stripe's cut still leaves the seller whole:
+//   charge = ((base + margin) * (1 + vat) + fixed) / (1 - pct) + buffer
+// After remitting the VAT and paying Stripe, the seller nets exactly base + margin, and
+// their real (ex-VAT) cost is base — so the margin is clean profit.
+function priceFor(env, base, country) {
+  const pct = num(env.PRICE_PCT_FEE || 0.039), fixed = num(env.PRICE_FIXED_FEE || 0.3);
+  const buf = num(env.PRICE_BUFFER || 1.5), margin = num(env.PRICE_MARGIN || 0);
+  const gross = (base + margin) * (1 + vatRateFor(env, country));
+  const charge = (gross + fixed) / (1 - pct) + buf;
   return Math.ceil(charge * 100); // minor units (cents)
+}
+
+// Offered sizes → Prodigi SKU. Config-driven via PRINT_SIZES (JSON) so sizes can be added
+// or swapped without a code change; the default keeps the existing 20×20 (using PRODIGI_SKU)
+// plus a smaller 12×12. The first entry is the fallback when a request omits/mismatches size.
+function printSizes(env) {
+  try { if (env.PRINT_SIZES) { const a = JSON.parse(env.PRINT_SIZES); if (Array.isArray(a) && a.length) return a; } } catch { /* fall through */ }
+  return [
+    { id: "20x20", sku: env.PRODIGI_SKU || "GLOBAL-CONS-FAP-20X20", label: "20×20 in (~51 cm)" },
+    { id: "12x12", sku: "GLOBAL-CONS-FAP-12X12", label: "12×12 in (~30 cm)" },
+  ];
+}
+function sizeFor(env, id) {
+  const sizes = printSizes(env);
+  return sizes.find(s => s.id === id) || sizes[0];
 }
 
 export async function handlePrintShop(path, request, env, ctx) {
@@ -126,7 +160,21 @@ export async function handlePrintShop(path, request, env, ctx) {
     // lets the client show the price ballpark / enabled state without secrets
     // Every fulfilment-critical secret must be present — including the webhook secret,
     // or payments would be taken while webhooks fail signature checks and no order is made.
-    return json({ enabled: !!(env.STRIPE_SECRET_KEY && env.PRODIGI_API_KEY && env.STRIPE_WEBHOOK_SECRET), currency: env.PRINT_CURRENCY || "EUR" });
+    return json({
+      enabled: !!(env.STRIPE_SECRET_KEY && env.PRODIGI_API_KEY && env.STRIPE_WEBHOOK_SECRET),
+      currency: env.PRINT_CURRENCY || "EUR",
+      sizes: printSizes(env).map(s => ({ id: s.id, label: s.label })),   // no SKUs to the client
+    });
+  }
+
+  // POST /print-quote { size, country } -> { amount, currency, size }  (price only, no Stripe session)
+  if (path === "/print-quote" && request.method === "POST") {
+    let b; try { b = await request.json(); } catch { return json({ error: "bad body" }, 400); }
+    const country = String(b.country || "").toUpperCase().replace(/[^A-Z]/g, "").slice(0, 2);
+    if (country.length !== 2) return json({ error: "country required" }, 400);
+    const size = sizeFor(env, String(b.size || ""));
+    let base; try { base = await quotePrint(env, country, size.sku); } catch (e) { return json({ error: String(e.message || e) }, 502); }
+    return json({ amount: priceFor(env, base, country), currency: env.PRINT_CURRENCY || "EUR", size: size.id });
   }
 
   // POST /print-image?serial=N  (body = PNG bytes) -> { key, url }
@@ -153,8 +201,9 @@ export async function handlePrintShop(path, request, env, ctx) {
     const imageKey = String(b.imageKey || "");
     const country = String(b.country || "").toUpperCase().replace(/[^A-Z]/g, "").slice(0, 2);
     if (!serial || !imageKey || country.length !== 2) return json({ error: "serial, imageKey, country required" }, 400);
-    let cost; try { cost = await quotePrint(env, country); } catch (e) { return json({ error: String(e.message || e) }, 502); }
-    const amount = priceFor(env, cost);
+    const size = sizeFor(env, String(b.size || ""));
+    let base; try { base = await quotePrint(env, country, size.sku); } catch (e) { return json({ error: String(e.message || e) }, 502); }
+    const amount = priceFor(env, base, country);
     const session = await stripe(env, "checkout/sessions", {
       mode: "payment",
       line_items: [{
@@ -162,14 +211,14 @@ export async function handlePrintShop(path, request, env, ctx) {
         price_data: {
           currency: (env.PRINT_CURRENCY || "EUR").toLowerCase(),
           unit_amount: amount,
-          product_data: { name: "Méta-Matic ∞ — print № " + serial },
+          product_data: { name: "Méta-Matic ∞ — print № " + serial + " · " + size.label },
         },
       }],
       shipping_address_collection: { allowed_countries: [country] },
       phone_number_collection: { enabled: true },
       success_url: (env.SITE_ORIGIN || "") + "/?print=ok",
       cancel_url: (env.SITE_ORIGIN || "") + "/?print=cancel",
-      metadata: { serial, imageKey, country },
+      metadata: { serial, imageKey, country, size: size.id },
     });
     return json({ url: session.url });
   }
@@ -231,7 +280,7 @@ export async function handlePrintShop(path, request, env, ctx) {
           },
         },
         items: [{
-          sku: env.PRODIGI_SKU, copies: 1, sizing: "fillPrintArea",
+          sku: sizeFor(env, m.size).sku, copies: 1, sizing: "fillPrintArea",
           assets: [{ printArea: "default", url: env.API_ORIGIN + "/print-image/" + m.imageKey }],
         }],
         metadata: { serial: m.serial, stripeSession: s.id },

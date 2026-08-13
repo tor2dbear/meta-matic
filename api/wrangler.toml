@@ -33,12 +33,17 @@ bucket_name = "meta-matic-prints"
 #   npx wrangler secret put STRIPE_WEBHOOK_SECRET
 #   npx wrangler secret put PRODIGI_API_KEY
 [vars]
-PRODIGI_BASE = "https://api.sandbox.prodigi.com"  # sandbox first; -> https://api.prodigi.com when live
-PRODIGI_SKU = "GLOBAL-FAP-16X16"                   # CONFIRM/replace with your chosen Prodigi product SKU
-PRODIGI_SHIPPING = "Standard"                      # Budget | Standard | StandardPlus | Express | Overnight
+PRODIGI_BASE = "https://api.prodigi.com"           # LIVE — real orders are placed & charged
+PRODIGI_SKU = "GLOBAL-CONS-FAP-20X20"              # default/fallback SKU (used when a request omits size)
+# Offered sizes (customer picks one; each is quoted, charged & ordered on its own SKU):
+PRINT_SIZES = '[{"id":"20x20","sku":"GLOBAL-CONS-FAP-20X20","label":"20×20 in (~51 cm)"},{"id":"12x12","sku":"GLOBAL-CONS-FAP-12X12","label":"12×12 in (~30 cm)"}]'
+PRODIGI_SHIPPING = "Budget"                        # Budget | Standard | StandardPlus | Express | Overnight
 PRINT_CURRENCY = "EUR"                             # match your Prodigi account currency to avoid FX
 PRICE_PCT_FEE = "0.039"                            # Stripe worst-case %, grossed up so you net full cost
 PRICE_FIXED_FEE = "0.30"                           # Stripe fixed fee
 PRICE_BUFFER = "1.50"                              # FX/rounding safety margin (never out of pocket)
+PRICE_MARGIN = "3.00"                              # your profit per print (ex-VAT), on top of cost (tune freely)
+PRICE_VAT_RATE = "0.25"                             # your output VAT for EU B2C sales (Swedish standard 25%)
+# PRICE_VAT_RATES = '{"GB":0.20,"SE":0.12}'        # optional JSON to override VAT per country (e.g. reduced art rate)
 SITE_ORIGIN = "https://meta-matic.tor2dbear.com"
 API_ORIGIN = "https://api.tor2dbear.com/meta-matic"

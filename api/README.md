@@ -147,9 +147,26 @@ fulfilled. Verify the address + image look right.
 
 ## Pricing (never out of pocket)
 
-`charge = (prodigi_cost + PRICE_FIXED_FEE) / (1 - PRICE_PCT_FEE) + PRICE_BUFFER`,
-rounded up. The gross-up covers Stripe's cut so you net the full Prodigi cost; the
-buffer absorbs FX/rounding. Tune the three `PRICE_*` vars in `wrangler.toml`.
+Modelled for a **VAT-registered seller selling B2C**:
+
+`charge = ((base + PRICE_MARGIN) × (1 + vat) + PRICE_FIXED_FEE) / (1 - PRICE_PCT_FEE) + PRICE_BUFFER`,
+rounded up, where:
+
+- **base** = the Prodigi quote (items + shipping), **ex-VAT**. Any VAT Prodigi charges is
+  *input VAT* the seller reclaims (or is reverse-charged B2B), so it is not a real cost and
+  is excluded — `base` is the seller's true cost.
+- **PRICE_MARGIN** = your profit per print (ex-VAT).
+- **vat** = *output VAT* you must charge the customer and remit. Under the EU distance-selling
+  (OSS) threshold this is your home rate (`PRICE_VAT_RATE`, Swedish 25%) on **EU** B2C sales;
+  **non-EU** sales are zero-rated exports (0% — the buyer pays any import VAT/duty). The EU
+  member set is built into `printshop.js`; override any country via `PRICE_VAT_RATES`
+  (JSON, e.g. `{"SE":0.12}` for a reduced art rate, or `{"GB":0.20}`).
+- the gross-up `/(1 - pct)` covers Stripe's cut; **PRICE_BUFFER** absorbs FX/rounding.
+
+Net effect: after remitting the output VAT and paying Stripe, you net exactly `base + margin`;
+your real cost is `base`, so the margin is clean profit and you're never out of pocket. Tune
+every `PRICE_*` var in `wrangler.toml`. **Confirm the VAT rate (art can be reduced-rated), the
+OSS threshold, and export handling with your accountant** — the defaults are sensible, not advice.
 
 ## Notes / trade-offs
 

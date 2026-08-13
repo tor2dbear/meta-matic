@@ -33,11 +33,17 @@
     --drawer:  #f3f1eb;   /* raised plane (certificates menu) — brighter than the page */
     --sunk:    #dcdad1;
     --ink:     #1a1c20;
-    --muted:   #6b6f78;
-    --faint:   #9a9d9f;
+    --muted:   #565a62;   /* darkened for WCAG AA (≥4.5:1 on paper/surface) */
+    --faint:   #63676f;   /* darkened for WCAG AA (was too light for small text) */
     --line:    #c6c4ba;
     --line-2:  #d3d1c8;
     --signal:  #d1402c;
+    --signal-ink: #d1402c;  /* filled-button bg — always AA (≥4.5:1) with white text, both themes */
+    /* Canonical "print" colours — deterministic black-on-light for the artifact you
+       certify/own: the exported/printed file AND the focus/sign modal that previews it.
+       Defined only here (never overridden per theme) so they stay light in dark mode too. */
+    --print-paper: #e4e2da;
+    --print-ink:   #1a1c20;
     --blue:    #25428a;
     --ink-rgb: 26, 28, 32;
     color-scheme: light;
@@ -50,10 +56,10 @@
       --sunk:    #0d0e11;
       --ink:     #e7e4da;
       --muted:   #83868f;
-      --faint:   #565962;
+      --faint:   #85888f;   /* lightened for WCAG AA on dark surface (was 2.43:1) */
       --line:    #2a2c32;
       --line-2:  #23252a;
-      --signal:  #ef5a44;
+      --signal:  #ef5a44;   /* bright accent (dots, thumbs, focus) — not used as a text bg */
       --blue:    #6f8fe0;
       --ink-rgb: 231, 228, 218;
       color-scheme: dark;
@@ -66,10 +72,10 @@
     --sunk:    #0d0e11;
     --ink:     #e7e4da;
     --muted:   #83868f;
-    --faint:   #565962;
+    --faint:   #85888f;   /* lightened for WCAG AA on dark surface (was 2.43:1) */
     --line:    #2a2c32;
     --line-2:  #23252a;
-    --signal:  #ef5a44;
+    --signal:  #ef5a44;   /* bright accent (dots, thumbs, focus) — not used as a text bg */
     --blue:    #6f8fe0;
     --ink-rgb: 231, 228, 218;
     color-scheme: dark;
@@ -179,7 +185,7 @@
   .seam {
     position: absolute; top: 14px; left: 50%; transform: translateX(-50%);
     z-index: 4; display: flex; align-items: center; gap: 8px; /* belt-view banner; wallet notices now render inside the focus card */
-    background: var(--signal); color: #fff;
+    background: var(--signal-ink); color: #fff;
     padding: 5px 12px; font-size: 11px; letter-spacing: 0.06em;
     border-radius: 2px; opacity: 0; transition: opacity .25s ease;
     box-shadow: 0 4px 18px rgba(0,0,0,.22);
@@ -237,7 +243,8 @@
   }
   .focus-card canvas {
     width: min(300px, 44vw); height: min(300px, 44vw); flex: 0 0 auto;
-    border: 1px solid var(--line-2); background: var(--paper);
+    /* the plate previews the artifact you certify — always black-on-light, both themes */
+    border: 1px solid var(--line-2); background: var(--print-paper);
   }
   .focus-meta { min-width: 200px; display: flex; flex-direction: column; gap: 11px; }
   .fm-serial { font-size: 21px; letter-spacing: -0.01em; }
@@ -249,10 +256,20 @@
   .fm-row.wide[hidden] { display: none; }
   .fm-row.wide b { color: var(--blue); font-size: 12px; font-variant-numeric: tabular-nums; }
   .fm-note { font-size: 11.5px; color: var(--muted); line-height: 1.6; margin: 3px 0 5px; }
-  .fm-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+  .fm-actions { display: flex; flex-direction: column; gap: 8px; }
+  .certify-wrap { position: relative; }
+  #f-certify, #f-release { width: 100%; }
+  .certify-menu { position: absolute; left: 0; right: 0; top: calc(100% + 5px); }
+  .certify-opt { padding: 12px 14px; font-size: 12px; letter-spacing: 0.04em; }
   .fm-fine { font-size: 10px; letter-spacing: 0.04em; color: var(--faint); margin: 4px 0 0; }
   .fm-msg { font-size: 11.5px; line-height: 1.5; color: var(--signal); margin: 6px 0 0; }
   .fm-msg[hidden] { display: none; }
+  /* Post-certify confirmation panel (replaces the actions on a successful sign) */
+  .fm-success[hidden] { display: none; }
+  .fm-success-t { font-size: 12.5px; line-height: 1.55; color: var(--ink); margin: 2px 0 10px; }
+  .fm-success-t b { color: var(--signal); font-weight: 700; }
+  .fm-success-actions { display: flex; flex-direction: column; gap: 6px; }
+  .fm-success-actions button { width: 100%; }
   @media (prefers-reduced-motion: no-preference) {
     .focus-card { animation: focusin .26s cubic-bezier(.2,.7,.3,1); }
   }
@@ -278,8 +295,8 @@
     padding: 9px 15px; transition: background .12s, color .12s;
   }
   button:hover { background: var(--ink); color: var(--paper); }
-  button.primary { background: var(--signal); border-color: var(--signal); color: #fff; }
-  button.primary:hover { background: color-mix(in srgb, var(--signal) 82%, #000); }
+  button.primary { background: var(--signal-ink); border-color: var(--signal-ink); color: #fff; }
+  button.primary:hover { background: color-mix(in srgb, var(--signal-ink) 82%, #000); }
   button:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
   button.ghost { border-color: var(--line); }
 
@@ -389,14 +406,30 @@
   .cert .mark-no { color: var(--blue); font-weight: 700; font-size: 10px; letter-spacing: 0.08em; margin-right: 7px; }
   .cert.newest { background: color-mix(in srgb, var(--signal) 7%, var(--paper)); }
   .cert .quip { font-size: 10px; color: var(--muted); line-height: 1.5; margin-top: 4px; padding-top: 5px; border-top: 1px dashed var(--line-2); }
-  .cert-actions { display: flex; gap: 6px; margin-top: 5px; align-self: flex-start; flex-wrap: wrap; }
-  .cert-save, .cert-print {
-    padding: 4px 9px;
-    font-size: 9.5px; letter-spacing: 0.08em; border-color: var(--line);
-  }
   .cert-wrap { display: flex; flex-direction: column; }
-  .cert-order { padding: 4px 9px; font-size: 9.5px; letter-spacing: 0.08em; border-color: var(--signal); color: var(--signal); }
-  .cert-order:hover { background: var(--signal); color: #fff; }
+  /* actions stack full-width: primary "Order a print" over a full-width "Download" */
+  .cert-actions { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; align-self: stretch; }
+  .cert-order {
+    width: 100%; padding: 9px 12px; font-size: 10.5px; letter-spacing: 0.08em; font-weight: 600;
+    background: var(--signal-ink); color: #fff; border-color: var(--signal-ink);
+  }
+  .cert-order:hover { background: color-mix(in srgb, var(--signal-ink) 85%, #000); border-color: color-mix(in srgb, var(--signal-ink) 85%, #000); }
+  .cert-dl { position: relative; width: 100%; }
+  .cert-download { width: 100%; padding: 9px 12px; font-size: 10.5px; letter-spacing: 0.08em; border-color: var(--line); }
+  .cert-dl-menu { position: absolute; left: 0; right: 0; bottom: calc(100% + 5px); }
+  /* shared popup-menu look for the Download (resolution) and Certify (method) menus */
+  .cert-dl-menu, .certify-menu {
+    z-index: 6; flex-direction: column; background: var(--paper);
+    border: 1px solid var(--line); border-radius: 3px; box-shadow: 0 8px 24px rgba(0,0,0,.30); overflow: hidden;
+  }
+  .cert-dl-menu[hidden], .certify-menu[hidden] { display: none; }   /* class display must not beat [hidden] */
+  .cert-dl-menu:not([hidden]), .certify-menu:not([hidden]) { display: flex; }
+  .cert-dl-opt, .certify-opt {
+    border: 0; border-radius: 0; background: transparent; text-align: left; color: var(--ink);
+  }
+  .cert-dl-opt { padding: 10px 12px; font-size: 10.5px; letter-spacing: 0.05em; }
+  .cert-dl-opt + .cert-dl-opt, .certify-opt + .certify-opt { border-top: 1px solid var(--line-2); }
+  .cert-dl-opt:hover, .certify-opt:hover { background: var(--signal-ink); color: #fff; }   /* clear, unmissable hover */
 
   /* Order-a-print dialog (v2.1b) */
   .order { position: fixed; inset: 0; z-index: 60; display: flex; align-items: center; justify-content: center;
@@ -413,6 +446,18 @@
   .order-row select { font: inherit; font-size: 13px; padding: 8px; background: var(--paper); color: var(--ink); border: 1px solid var(--line); }
   .order-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 4px; }
   .order-msg { font-size: 12px; color: var(--signal); margin: 0; }
+  /* size picker — one row per size, with its live price */
+  .order-sizes { display: flex; flex-direction: column; gap: 6px; }
+  .size-opt {
+    display: flex; align-items: center; gap: 10px; cursor: pointer;
+    padding: 10px 12px; border: 1px solid var(--line); border-radius: 3px; font-size: 12px; color: var(--ink);
+  }
+  .size-opt:hover { border-color: var(--muted); }
+  .size-opt:has(input:checked) { border-color: var(--signal); background: color-mix(in srgb, var(--signal) 7%, var(--surface)); }
+  .size-opt input { accent-color: var(--signal); margin: 0; }
+  .size-label { flex: 1; }
+  .size-price { font-variant-numeric: tabular-nums; color: var(--muted); font-weight: 600; }
+  .size-opt:has(input:checked) .size-price { color: var(--ink); }
 
   footer.credit {
     padding: 16px clamp(16px, 4vw, 40px); border-top: 1px solid var(--line);
@@ -432,7 +477,7 @@
 </head>
 <body>
 <!-- Hero: the belt fills the first screen; "the space" band lives below the fold. -->
-<div class="hero">
+<main class="hero">
 <header>
   <div class="wordmark">
     <span class="eyebrow">A drawing machine after Tinguely · 2026</span>
@@ -469,14 +514,28 @@
         <p class="fm-note">Inspect the work. The machine keeps drawing while you look.
           Certify it to make it <em>yours</em> — one owner per work.</p>
         <div class="fm-actions">
-          <button class="primary" id="f-sign">Certify · this browser</button>
-          <button id="f-wallet">⛓ Certify · with wallet</button>
+          <div class="certify-wrap">
+            <button class="primary" id="f-certify" aria-haspopup="true" aria-expanded="false">Certify this work</button>
+            <div class="certify-menu" id="f-certify-menu" hidden>
+              <button class="certify-opt" id="f-sign">Certify · this browser</button>
+              <button class="certify-opt" id="f-wallet">Certify · with wallet</button>
+            </div>
+          </div>
           <button id="f-release">Release · keep looking</button>
         </div>
         <p class="fm-fine">One certificate per work — first to sign. A wallet adds a free,
           off-chain signature (personal_sign) — no gas, no chain. Save your certified
           works as images from “Certified · you”.</p>
         <p class="fm-msg" id="f-msg" hidden></p>
+        <!-- Post-certify confirmation: names WHERE the work landed and offers a jump there,
+             so signing never feels like the work just vanished. -->
+        <div class="fm-success" id="f-success" hidden>
+          <p class="fm-success-t" id="f-success-t"></p>
+          <div class="fm-success-actions">
+            <button class="primary" id="f-view-works" type="button">View your works ↗</button>
+            <button id="f-keep" type="button">Keep watching</button>
+          </div>
+        </div>
       </div>
     </div>
   </div>
@@ -497,7 +556,7 @@
     </p>
   </div>
 </div>
-</div><!-- /.hero -->
+</main><!-- /.hero -->
 
 <!-- The space — unboxed: the machine's one path through the latent field, bleeding
      to the page edges (no frame · the space does not end). Labels float as hairline
@@ -531,14 +590,26 @@
 <div class="order" id="order" hidden>
   <div class="order-card" role="dialog" aria-modal="true" aria-label="Order a print">
     <div class="order-t">Order a print</div>
-    <p class="order-sub">A fine-art giclée of your certified work. The price is calculated live for your country at checkout — you pay exactly the print + shipping, nothing hidden.</p>
+    <p class="order-sub">Museum-grade giclée on Enhanced Matte Art 200&thinsp;gsm. Prices are live for your country — you pay exactly print + shipping + tax, nothing hidden.</p>
     <label class="order-row"><span>Ship to</span><select id="order-country"></select></label>
+    <div class="order-sizes" id="order-sizes" role="radiogroup" aria-label="Print size"></div>
     <div class="order-actions">
       <button class="primary" id="order-go">Continue to secure checkout →</button>
       <button id="order-cancel">Cancel</button>
     </div>
     <p class="order-msg" id="order-msg" hidden></p>
     <p class="order-fine">Payment by Stripe · printed &amp; shipped worldwide by Prodigi. Import duties may apply on international orders.</p>
+  </div>
+</div>
+
+<!-- Shown when the customer returns from a successful Stripe Checkout (?print=ok) -->
+<div class="order" id="print-confirm" hidden>
+  <div class="order-card" role="dialog" aria-modal="true" aria-label="Order confirmed">
+    <div class="order-t">✓ Print ordered</div>
+    <p class="order-sub">Thank you — your payment went through and your print is on its way. It's printed and shipped by Prodigi to the address you entered at checkout.</p>
+    <div class="order-actions">
+      <button class="primary" id="print-confirm-ok">Done</button>
+    </div>
   </div>
 </div>
 
@@ -795,7 +866,10 @@
         ctx.moveTo(bx[s] + nx * wa, by[s] + ny * wa); ctx.lineTo(bx[s + 1] + nx * wb, by[s + 1] + ny * wb);
         ctx.lineTo(bx[s + 1] - nx * wb, by[s + 1] - ny * wb); ctx.lineTo(bx[s] - nx * wa, by[s] - ny * wa);
       }
-      if (size >= 600) { for (let s = 0; s <= steps; s++) { ctx.moveTo(bx[s] + half[s], by[s]); ctx.arc(bx[s], by[s], half[s], 0, TAU); } }
+      // Round joint-fills for large static renders (export/print). They MUST wind the same
+      // way as the ribbon quads, or the nonzero fill rule cancels them against the ribbon at
+      // every joint — which renders the strokes as a dashed/stitched line. `true` = match.
+      if (size >= 600) { for (let s = 0; s <= steps; s++) { ctx.moveTo(bx[s] + half[s], by[s]); ctx.arc(bx[s], by[s], half[s], 0, TAU, true); } }
       ctx.globalAlpha = alpha;
       ctx.fill();
     }
@@ -1437,8 +1511,7 @@
 
     if (!net) {   // offline / no backend: exclusivity can't be enforced, keep a local copy
       mint(serial, { method, wallet: walletEntry(walletData) });
-      showSeam("✓ CERTIFIED · № " + serial.toLocaleString("en-US") + " · saved locally (offline)", 2.6);
-      closeFocus(true);
+      showCertSuccess(serial, method, true);
       return;
     }
     if (!ok) {   // server reachable but rejected — do NOT mint a false certificate
@@ -1449,9 +1522,7 @@
       mint(serial, { method, wallet: walletEntry(walletData) });
       if (typeof data.total === "number") { state.globalTotal = data.total; updateGlobalChip(); }
       refreshClaimed();
-      showSeam((method === "wallet" ? "⛓ CERTIFIED · " + shortAddr(walletData.address) + " · " : "✓ CERTIFIED · ") +
-        "№ " + serial.toLocaleString("en-US") + " is yours", 2.8);
-      closeFocus(true);
+      showCertSuccess(serial, method, false);
       return;
     }
     // Taken — someone was first. Stay on the card and show who.
@@ -1493,7 +1564,14 @@
   async function signWithWallet(serial) {
     const eth = window.ethereum;
     if (!eth || typeof eth.request !== "function") {
-      showCardMsg("No Ethereum wallet detected. Install one (e.g. MetaMask) to attest."); return;
+      // No injected provider. Mobile browsers (esp. iOS Safari) never inject one — signing
+      // there happens inside the wallet app's own browser — so guide by platform instead of
+      // a dead "install MetaMask", and always point to the no-wallet browser path.
+      const onMobile = /Android|iP(hone|ad|od)/i.test(navigator.userAgent);
+      showCardMsg(onMobile
+        ? "On a phone, wallet signing happens inside your wallet app’s own browser. Open this page from your wallet app (MetaMask, Rainbow, Coinbase…) — or use “Certify · this browser” here, no wallet needed."
+        : "No browser wallet found. Add a wallet extension (e.g. MetaMask) and reload — or use “Certify · this browser”, no wallet needed.");
+      return;
     }
     clearCardMsg();
     // Tie this request to the current focus instance. If the user releases and
@@ -1531,7 +1609,13 @@
       wrap.className = "cert" + (idx === 0 ? " newest" : "");
       const cv = document.createElement("canvas");
       cv.width = 128; cv.height = 128;
-      drawWork(cv.getContext("2d"), 64, 64, 128, m.u, m.v, css("--ink"), 1, m.gen);
+      // Paint the plate's ground explicitly (theme-aware) instead of relying on the
+      // canvas element's CSS background showing through — so the thumbnail always
+      // renders, and inverts with the theme (light-on-dark in dark mode).
+      const tctx = cv.getContext("2d");
+      tctx.fillStyle = css("--surface");
+      tctx.fillRect(0, 0, 128, 128);
+      drawWork(tctx, 64, 64, 128, m.u, m.v, css("--ink"), 1, m.gen);
       const meta = document.createElement("div");
       meta.className = "meta";
       meta.innerHTML =
@@ -1543,9 +1627,14 @@
         (m.wallet ? '<div class="row"><span class="lab">Wallet</span><span class="val" style="color:var(--blue)" title="' + m.wallet.address + '">⛓ ' + shortAddr(m.wallet.address) + '</span></div>' : '') +
         (idx === 0 ? '<div class="quip">' + QUIPS[m.serial % QUIPS.length] + '</div>' : '') +
         '<div class="cert-actions">' +
-          '<button class="cert-save" data-uid="' + m.uid + '">↓ Save image</button>' +
-          '<button class="cert-print" data-uid="' + m.uid + '" title="High-resolution print file — 3600×3600 px, 300 dpi (12×12 in)">↓ Print · 300 dpi</button>' +
-          (state.printEnabled ? '<button class="cert-order" data-uid="' + m.uid + '">🖼 Order print</button>' : '') +
+          (state.printEnabled ? '<button class="cert-order" data-uid="' + m.uid + '">Order a print</button>' : '') +
+          '<div class="cert-dl">' +
+            '<button class="cert-download" data-uid="' + m.uid + '" aria-haspopup="true" aria-expanded="false" title="Download a PNG of your work">↓ Download</button>' +
+            '<div class="cert-dl-menu" hidden>' +
+              '<button class="cert-dl-opt" data-uid="' + m.uid + '" data-res="screen">Screen · 1400 px</button>' +
+              '<button class="cert-dl-opt" data-uid="' + m.uid + '" data-res="print">Print · 300 dpi · 6000 px</button>' +
+            '</div>' +
+          '</div>' +
         '</div>';
       wrap.appendChild(cv); wrap.appendChild(meta);
       el.ledger.appendChild(wrap);
@@ -1557,46 +1646,104 @@
     clearTimeout(btn._flash);
     btn._flash = setTimeout(() => { btn.textContent = label; }, 1600);
   }
+  function closeDlMenus() {
+    el.ledger.querySelectorAll(".cert-dl-menu").forEach(m => { m.hidden = true; });
+    el.ledger.querySelectorAll(".cert-download").forEach(b => b.setAttribute("aria-expanded", "false"));
+  }
   el.ledger.addEventListener("click", e => {
     const order = e.target.closest(".cert-order");
-    if (order) { openOrder(order.dataset.uid); return; }
-    const save = e.target.closest(".cert-save");
-    if (save) { saveImage(save.dataset.uid); flashBtn(save, "↓ Save image"); return; }
-    const print = e.target.closest(".cert-print");
-    if (print) { downloadPrint(print.dataset.uid); flashBtn(print, "↓ Print · 300 dpi"); }
+    if (order) { closeDlMenus(); openOrder(order.dataset.uid); return; }
+    const dlToggle = e.target.closest(".cert-download");
+    if (dlToggle) {
+      const menu = dlToggle.parentElement.querySelector(".cert-dl-menu");
+      const willOpen = menu.hidden;
+      closeDlMenus();
+      menu.hidden = !willOpen;
+      dlToggle.setAttribute("aria-expanded", String(willOpen));
+      return;
+    }
+    const opt = e.target.closest(".cert-dl-opt");
+    if (opt) {
+      if (opt.dataset.res === "print") downloadPrint(opt.dataset.uid);
+      else saveImage(opt.dataset.uid);
+      const tog = opt.closest(".cert-dl").querySelector(".cert-download");
+      closeDlMenus();
+      flashBtn(tog, "↓ Download");
+      return;
+    }
+    closeDlMenus();   // any other click in the drawer dismisses an open menu
   });
 
   /* ---------- order a physical print (v2.1b: Stripe Checkout -> Prodigi) ---------- */
   const orderEl = document.getElementById("order");
   const orderCountry = document.getElementById("order-country");
+  const orderSizes = document.getElementById("order-sizes");
   const orderMsg = document.getElementById("order-msg");
   const orderGo = document.getElementById("order-go");
   let orderEntry = null;
+  let printSizeCfg = [];      // [{id,label}] from /print/config
+  let printCur = "EUR";
   // A curated worldwide set; any Prodigi-shippable country can be added here.
   const COUNTRIES = [["SE","Sweden"],["NO","Norway"],["DK","Denmark"],["FI","Finland"],["DE","Germany"],["NL","Netherlands"],["FR","France"],["ES","Spain"],["IT","Italy"],["PT","Portugal"],["BE","Belgium"],["AT","Austria"],["CH","Switzerland"],["IE","Ireland"],["PL","Poland"],["CZ","Czechia"],["GB","United Kingdom"],["US","United States"],["CA","Canada"],["AU","Australia"],["NZ","New Zealand"],["JP","Japan"],["SG","Singapore"],["HK","Hong Kong"],["AE","United Arab Emirates"],["BR","Brazil"],["MX","Mexico"],["ZA","South Africa"],["IN","India"],["KR","South Korea"]];
   COUNTRIES.forEach(([code, name]) => { const o = document.createElement("option"); o.value = code; o.textContent = name; orderCountry.appendChild(o); });
   function setOrderMsg(t) { orderMsg.textContent = t || ""; orderMsg.hidden = !t; }
+  function fmtPrice(minor) { return (printCur === "EUR" ? "€" : printCur + " ") + (minor / 100).toFixed(2); }
+  function selectedSize() {
+    const r = orderSizes.querySelector('input[name="print-size"]:checked');
+    return r ? r.value : (printSizeCfg[0] && printSizeCfg[0].id) || "";
+  }
+  function renderSizeOptions() {
+    orderSizes.hidden = !printSizeCfg.length;
+    orderSizes.innerHTML = printSizeCfg.map((s, i) =>
+      '<label class="size-opt">' +
+        '<input type="radio" name="print-size" value="' + s.id + '"' + (i === 0 ? ' checked' : '') + '>' +
+        '<span class="size-label">' + s.label + '</span>' +
+        '<span class="size-price" data-size="' + s.id + '">…</span>' +
+      '</label>').join("");
+  }
+  let priceSeq = 0;
+  // Live price per size for the chosen country (each is a real Prodigi quote, no session).
+  async function refreshSizePrices() {
+    if (!printSizeCfg.length) return;
+    const country = orderCountry.value, seq = ++priceSeq;
+    orderSizes.querySelectorAll(".size-price").forEach(el => { el.textContent = "…"; });
+    await Promise.all(printSizeCfg.map(async s => {
+      let txt = "—";
+      try {
+        const r = await fetch(API + "/print-quote", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ size: s.id, country }) });
+        const d = await r.json().catch(() => null);
+        if (r.ok && d && d.amount) txt = fmtPrice(d.amount);
+      } catch { /* keep — */ }
+      if (seq !== priceSeq) return;                       // a newer country/open supersedes this answer
+      const el = orderSizes.querySelector('.size-price[data-size="' + s.id + '"]');
+      if (el) el.textContent = txt;
+    }));
+  }
   function openOrder(uid) {
     orderEntry = state.minted.find(e => e.uid === uid);
     if (!orderEntry) return;
-    setOrderMsg(""); orderGo.disabled = false; orderEl.hidden = false;
+    setOrderMsg(""); orderGo.disabled = false;
+    renderSizeOptions();
+    orderEl.hidden = false;
+    refreshSizePrices();
   }
   function closeOrder() { orderEl.hidden = true; orderEntry = null; }
   document.getElementById("order-cancel").addEventListener("click", closeOrder);
   orderEl.addEventListener("click", e => { if (e.target === orderEl) closeOrder(); });
+  orderCountry.addEventListener("change", refreshSizePrices);
   orderGo.addEventListener("click", async () => {
     if (!orderEntry) return;
-    const country = orderCountry.value, entry = orderEntry;
+    const country = orderCountry.value, size = selectedSize(), entry = orderEntry;
     orderGo.disabled = true; setOrderMsg("Preparing your print…");
     try {
       // 1) render the 300 dpi file and upload it so the lab can fetch it by URL
-      const blob = dataURLToBlob(exportCanvas(entry, 3600).toDataURL("image/png"));
+      const blob = dataURLToBlob(exportCanvas(entry, PRINT_PX).toDataURL("image/png"));
       const up = await fetch(API + "/print-image?serial=" + entry.serial, { method: "POST", headers: { "Content-Type": "image/png" }, body: blob });
       const upd = up.ok ? await up.json() : null;
       if (!upd || !upd.key) throw new Error("image upload failed");
-      // 2) get a Stripe Checkout priced live for the chosen country
+      // 2) get a Stripe Checkout priced live for the chosen size + country
       setOrderMsg("Calculating price for your country…");
-      const co = await fetch(API + "/print-checkout", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ serial: entry.serial, imageKey: upd.key, country }) });
+      const co = await fetch(API + "/print-checkout", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ serial: entry.serial, imageKey: upd.key, country, size }) });
       const cod = await co.json().catch(() => null);
       if (!co.ok || !cod || !cod.url) throw new Error((cod && cod.error) || "checkout unavailable");
       window.location.href = cod.url; // 3) hand off to Stripe's hosted page
@@ -1607,32 +1754,57 @@
   });
 
   /* ---------- export a signed work as a shareable PNG ---------- */
-  // S = canvas size in px. Default 1400 (a shareable image); 3600 renders a
-  // print-ready file (12×12 in at 300 dpi). Text/margins scale with k so the
-  // composition is identical at any size — drawWork scales itself from `size`.
+  // The physical product is 20×20 in, so 300 dpi print resolution = 20·300 = 6000 px.
+  // The work is procedural/vector, so it renders crisp at any size — no quality loss.
+  const PRINT_PX = 6000;
+  // S = canvas size in px. Default 1400 (a shareable image); PRINT_PX renders the
+  // print-ready file. Text/margins scale with k so the composition is identical at any
+  // size — drawWork scales itself from `size`.
   function exportCanvas(entry, S) {
     S = S || 1400;
-    const k = S / 1400, pad = 150 * k;
+    const k = S / 1400;
+    const M = 130 * k;                          // one uniform margin on all four edges
     const serial = entry.serial;
+    const c = coordFor(serial);
     const cv = document.createElement("canvas"); cv.width = S; cv.height = S;
     const x = cv.getContext("2d");
-    const paper = css("--paper"), ink = css("--ink"), muted = css("--muted"), faint = css("--faint");
+    // Saved/printed files are ALWAYS the canonical light "technical paper" — black on
+    // light — never theme-dependent. On-screen art (belt, thumbnails) inverts with the
+    // OS theme, but an exported/ordered file must be deterministic: the same serial
+    // yields the same print whether the browser is in light or dark mode. So we hard-code
+    // the light palette here instead of reading the live (theme-dependent) CSS variables.
+    const paper = "#e4e2da", ink = "#1a1c20", muted = "#565a62", faint = "#63676f", signal = "#d1402c";
     x.fillStyle = paper; x.fillRect(0, 0, S, S);
-    const c = coordFor(serial);
-    drawWork(x, S / 2, S / 2 + 10 * k, S - pad * 2, c.u, c.v, ink, 3.2, entry.gen);
-    x.fillStyle = muted; x.textAlign = "left";
-    x.font = "700 " + (30 * k) + "px ui-monospace, Menlo, monospace";
-    x.fillText("MÉTA-MATIC ∞", pad, 84 * k);
-    x.fillStyle = muted; x.textAlign = "left";
+
+    // Wordmark sits in the top margin band, caption in the bottom band, and the work is
+    // centred in what's left — so all four margins read equal instead of the old mix.
+    const walletLine = entry.wallet && entry.wallet.address;
+    const headBaseline = M + 30 * k;
+    const footBaseline = S - M - (walletLine ? 34 * k : 0);
+    const artTop = headBaseline + 40 * k, artBottom = footBaseline - 40 * k;
+    const artSize = Math.min(S - M * 2, artBottom - artTop);
+    x.textBaseline = "alphabetic";
+    drawWork(x, S / 2, (artTop + artBottom) / 2, artSize, c.u, c.v, ink, 3.2, entry.gen);
+
+    // Wordmark — matches the site: tight bold sans, the ∞ in signal red (not monospace).
+    x.textAlign = "left";
+    if ("letterSpacing" in x) x.letterSpacing = (-0.03 * 34 * k) + "px";
+    x.font = "800 " + (34 * k) + "px 'Helvetica Neue', Inter, system-ui, Arial, sans-serif";
+    x.fillStyle = muted; x.fillText("MÉTA-MATIC ", M, headBaseline);
+    const wmW = x.measureText("MÉTA-MATIC ").width;
+    x.fillStyle = signal; x.fillText("∞", M + wmW, headBaseline);
+    if ("letterSpacing" in x) x.letterSpacing = "0px";
+
+    // Caption — mono: serial left, coordinate · fingerprint right, on one baseline.
     x.font = (22 * k) + "px ui-monospace, Menlo, monospace";
-    x.fillText("№ " + serial.toLocaleString("en-US"), pad, S - pad + 44 * k);
-    x.textAlign = "right";
-    x.fillStyle = faint;
-    x.fillText(c.u.toFixed(4) + " , " + c.v.toFixed(4) + "  ·  " + fingerprint(serial, c.u, c.v), S - pad, S - pad + 44 * k);
-    if (entry.wallet && entry.wallet.address) {
+    x.fillStyle = muted; x.textAlign = "left";
+    x.fillText("№ " + serial.toLocaleString("en-US"), M, footBaseline);
+    x.fillStyle = faint; x.textAlign = "right";
+    x.fillText(c.u.toFixed(4) + " , " + c.v.toFixed(4) + "  ·  " + fingerprint(serial, c.u, c.v), S - M, footBaseline);
+    if (walletLine) {
       x.textAlign = "left"; x.fillStyle = muted;
-      x.font = (18 * k) + "px ui-monospace, Menlo, monospace";
-      x.fillText("wallet-attested · " + entry.wallet.address, pad, S - pad + 80 * k);
+      x.font = (16 * k) + "px ui-monospace, Menlo, monospace";
+      x.fillText("wallet-attested · " + entry.wallet.address, M, footBaseline + 34 * k);
     }
     return cv;
   }
@@ -1679,7 +1851,7 @@
   // v2.0 print: a 3600×3600 (12 in @ 300 dpi) file of your certified work.
   function downloadPrint(uid) {
     const entry = state.minted.find(e => e.uid === uid);
-    if (entry) downloadCanvas(exportCanvas(entry, 3600), "meta-matic-print-" + entry.serial + ".png");
+    if (entry) downloadCanvas(exportCanvas(entry, PRINT_PX), "meta-matic-print-" + entry.serial + ".png");
   }
 
   /* ---------- focus / inspect (click -> freeze + enlarge -> deliberate sign) ---------- */
@@ -1698,7 +1870,19 @@
   // The gut-punch: how many others already signed this "unique" pick.
   const fSign = document.getElementById("f-sign");
   const fWallet = document.getElementById("f-wallet");
-  function setCertifyEnabled(on) { fSign.hidden = !on; fWallet.hidden = !on; }
+  const fCertify = document.getElementById("f-certify");
+  const fCertifyMenu = document.getElementById("f-certify-menu");
+  function closeCertifyMenu() { fCertifyMenu.hidden = true; fCertify.setAttribute("aria-expanded", "false"); }
+  // One primary "Certify" button reveals the two methods; availability toggles the button
+  // (the browser/wallet claim handlers stay bound to #f-sign / #f-wallet inside the menu).
+  function setCertifyEnabled(on) { fCertify.hidden = !on; if (!on) closeCertifyMenu(); }
+  fCertify.addEventListener("click", () => {
+    const willOpen = fCertifyMenu.hidden;
+    fCertifyMenu.hidden = !willOpen;
+    fCertify.setAttribute("aria-expanded", String(willOpen));
+  });
+  fCertifyMenu.addEventListener("click", () => closeCertifyMenu());   // picking a method dismisses the menu
+  focusCard.addEventListener("click", e => { if (!e.target.closest(".certify-wrap")) closeCertifyMenu(); });
   function timeAgo(ts) {
     if (!ts) return "just now";
     const s = Math.max(0, (Date.now() - ts) / 1000);
@@ -1761,8 +1945,12 @@
     focusCanvas.style.width = cssSize + "px"; focusCanvas.style.height = cssSize + "px";
     focusCanvas.width = Math.round(cssSize * d); focusCanvas.height = Math.round(cssSize * d);
     fctx.setTransform(d, 0, 0, d, 0, 0);
+    // Deterministic black-on-light: paint the plate explicitly so the modal previews
+    // the actual artifact (certificate/print), not the theme-inverted belt art.
     fctx.clearRect(0, 0, cssSize, cssSize);
-    drawWork(fctx, cssSize / 2, cssSize / 2, cssSize, c.u, c.v, css("--ink"));
+    fctx.fillStyle = css("--print-paper");
+    fctx.fillRect(0, 0, cssSize, cssSize);
+    drawWork(fctx, cssSize / 2, cssSize / 2, cssSize, c.u, c.v, css("--print-ink"));
 
     // Global "signed N times" line. Hidden when offline (page stays fully usable).
     const seq = ++signedReqSeq;
@@ -1781,10 +1969,39 @@
     }
 
     clearCardMsg();
+    resetFocusCard();                 // restore actions/notes; clear any prior success panel
     focusEl.hidden = false;
     document.body.style.overflow = "hidden"; // lock background scroll behind the modal
     focusCard.scrollTop = 0; focusEl.scrollTop = 0; // reopen at the top (card is the scroll container on short screens)
     document.getElementById("f-release").focus({ preventScroll: true }); // always present; certify buttons may be hidden if claimed
+  }
+  // Swap the card into its post-certify state: the confirmation panel replaces the
+  // certify/release actions and names WHERE the work landed ("Certified · you", ↗ top-right).
+  function showCertSuccess(serial, method, offline) {
+    const actions = focusCard.querySelector(".fm-actions");
+    const note = focusCard.querySelector(".fm-note");
+    const fine = focusCard.querySelector(".fm-fine");
+    if (actions) actions.hidden = true;
+    if (note) note.hidden = true;
+    if (fine) fine.hidden = true;
+    clearCardMsg();
+    const no = "№ " + serial.toLocaleString("en-US");
+    document.getElementById("f-success-t").innerHTML =
+      (method === "wallet" ? "⛓ " : "✓ ") + "<b>Signed.</b> " + no +
+      (offline ? " saved locally (offline)." : " is yours.") +
+      "<br>It’s in <b>“Certified · you”</b> ↗ — top-right. Open it to save or order a print.";
+    document.getElementById("f-success").hidden = false;
+    document.getElementById("f-view-works").focus({ preventScroll: true });
+  }
+  // Undo showCertSuccess so the card reopens clean for the next work.
+  function resetFocusCard() {
+    const actions = focusCard.querySelector(".fm-actions");
+    const note = focusCard.querySelector(".fm-note");
+    const fine = focusCard.querySelector(".fm-fine");
+    if (actions) actions.hidden = false;
+    if (note) note.hidden = false;
+    if (fine) fine.hidden = false;
+    document.getElementById("f-success").hidden = true;
   }
   function closeFocus(silent) {
     focusEl.hidden = true;
@@ -1807,6 +2024,10 @@
     if (focusSerial != null) signWithWallet(focusSerial);
   });
   document.getElementById("f-release").addEventListener("click", () => closeFocus(false));
+  // Success panel: jump straight to the drawer (newest cert sits highlighted at the top),
+  // or dismiss and keep watching the machine.
+  document.getElementById("f-view-works").addEventListener("click", () => { closeFocus(true); setDrawer(true); });
+  document.getElementById("f-keep").addEventListener("click", () => closeFocus(false));
   focusEl.addEventListener("click", e => { if (e.target === focusEl) closeFocus(false); });
 
   /* ---------- controls ---------- */
@@ -1994,10 +2215,23 @@
   });
   refreshClaimed();   // pull everyone's certified points for the map
   // print shop: reveal the "Order print" action only once the backend is configured
-  apiGet("/print/config").then(res => { if (res && res.enabled) { state.printEnabled = true; renderLedger(); } });
+  apiGet("/print/config").then(res => {
+    if (res && res.enabled) {
+      state.printEnabled = true;
+      printSizeCfg = Array.isArray(res.sizes) ? res.sizes : [];
+      printCur = res.currency || "EUR";
+      renderLedger();
+    }
+  });
   // returning from Stripe Checkout
-  if (/[?&]print=ok/.test(location.search)) { showSeam("✓ Print ordered — a confirmation email is on its way", 4.5); history.replaceState(null, "", location.pathname); }
-  else if (/[?&]print=cancel/.test(location.search)) history.replaceState(null, "", location.pathname);
+  if (/[?&]print=ok/.test(location.search)) {
+    const pc = document.getElementById("print-confirm");
+    pc.hidden = false;
+    const closePc = () => { pc.hidden = true; };
+    document.getElementById("print-confirm-ok").addEventListener("click", closePc);
+    pc.addEventListener("click", e => { if (e.target === pc) closePc(); });
+    history.replaceState(null, "", location.pathname);
+  } else if (/[?&]print=cancel/.test(location.search)) history.replaceState(null, "", location.pathname);
 
   if (reduced) {
     state.looking = false;
