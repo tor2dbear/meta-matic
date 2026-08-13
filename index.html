@@ -433,6 +433,18 @@
   .order-row select { font: inherit; font-size: 13px; padding: 8px; background: var(--paper); color: var(--ink); border: 1px solid var(--line); }
   .order-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 4px; }
   .order-msg { font-size: 12px; color: var(--signal); margin: 0; }
+  /* size picker — one row per size, with its live price */
+  .order-sizes { display: flex; flex-direction: column; gap: 6px; }
+  .size-opt {
+    display: flex; align-items: center; gap: 10px; cursor: pointer;
+    padding: 10px 12px; border: 1px solid var(--line); border-radius: 3px; font-size: 12px; color: var(--ink);
+  }
+  .size-opt:hover { border-color: var(--muted); }
+  .size-opt:has(input:checked) { border-color: var(--signal); background: color-mix(in srgb, var(--signal) 7%, var(--surface)); }
+  .size-opt input { accent-color: var(--signal); margin: 0; }
+  .size-label { flex: 1; }
+  .size-price { font-variant-numeric: tabular-nums; color: var(--muted); font-weight: 600; }
+  .size-opt:has(input:checked) .size-price { color: var(--ink); }
 
   footer.credit {
     padding: 16px clamp(16px, 4vw, 40px); border-top: 1px solid var(--line);
@@ -556,8 +568,9 @@
 <div class="order" id="order" hidden>
   <div class="order-card" role="dialog" aria-modal="true" aria-label="Order a print">
     <div class="order-t">Order a print</div>
-    <p class="order-sub"><strong>20&times;20&thinsp;in (~51&thinsp;cm) square</strong> &middot; museum-grade giclée on Enhanced Matte Art 200&thinsp;gsm. The price is calculated live for your country at checkout — you pay exactly the print + shipping, nothing hidden.</p>
+    <p class="order-sub">Museum-grade giclée on Enhanced Matte Art 200&thinsp;gsm. Prices are live for your country — you pay exactly print + shipping + tax, nothing hidden.</p>
     <label class="order-row"><span>Ship to</span><select id="order-country"></select></label>
+    <div class="order-sizes" id="order-sizes" role="radiogroup" aria-label="Print size"></div>
     <div class="order-actions">
       <button class="primary" id="order-go">Continue to secure checkout →</button>
       <button id="order-cancel">Cancel</button>
@@ -1632,24 +1645,63 @@
   /* ---------- order a physical print (v2.1b: Stripe Checkout -> Prodigi) ---------- */
   const orderEl = document.getElementById("order");
   const orderCountry = document.getElementById("order-country");
+  const orderSizes = document.getElementById("order-sizes");
   const orderMsg = document.getElementById("order-msg");
   const orderGo = document.getElementById("order-go");
   let orderEntry = null;
+  let printSizeCfg = [];      // [{id,label}] from /print/config
+  let printCur = "EUR";
   // A curated worldwide set; any Prodigi-shippable country can be added here.
   const COUNTRIES = [["SE","Sweden"],["NO","Norway"],["DK","Denmark"],["FI","Finland"],["DE","Germany"],["NL","Netherlands"],["FR","France"],["ES","Spain"],["IT","Italy"],["PT","Portugal"],["BE","Belgium"],["AT","Austria"],["CH","Switzerland"],["IE","Ireland"],["PL","Poland"],["CZ","Czechia"],["GB","United Kingdom"],["US","United States"],["CA","Canada"],["AU","Australia"],["NZ","New Zealand"],["JP","Japan"],["SG","Singapore"],["HK","Hong Kong"],["AE","United Arab Emirates"],["BR","Brazil"],["MX","Mexico"],["ZA","South Africa"],["IN","India"],["KR","South Korea"]];
   COUNTRIES.forEach(([code, name]) => { const o = document.createElement("option"); o.value = code; o.textContent = name; orderCountry.appendChild(o); });
   function setOrderMsg(t) { orderMsg.textContent = t || ""; orderMsg.hidden = !t; }
+  function fmtPrice(minor) { return (printCur === "EUR" ? "€" : printCur + " ") + (minor / 100).toFixed(2); }
+  function selectedSize() {
+    const r = orderSizes.querySelector('input[name="print-size"]:checked');
+    return r ? r.value : (printSizeCfg[0] && printSizeCfg[0].id) || "";
+  }
+  function renderSizeOptions() {
+    orderSizes.hidden = !printSizeCfg.length;
+    orderSizes.innerHTML = printSizeCfg.map((s, i) =>
+      '<label class="size-opt">' +
+        '<input type="radio" name="print-size" value="' + s.id + '"' + (i === 0 ? ' checked' : '') + '>' +
+        '<span class="size-label">' + s.label + '</span>' +
+        '<span class="size-price" data-size="' + s.id + '">…</span>' +
+      '</label>').join("");
+  }
+  let priceSeq = 0;
+  // Live price per size for the chosen country (each is a real Prodigi quote, no session).
+  async function refreshSizePrices() {
+    if (!printSizeCfg.length) return;
+    const country = orderCountry.value, seq = ++priceSeq;
+    orderSizes.querySelectorAll(".size-price").forEach(el => { el.textContent = "…"; });
+    await Promise.all(printSizeCfg.map(async s => {
+      let txt = "—";
+      try {
+        const r = await fetch(API + "/print-quote", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ size: s.id, country }) });
+        const d = await r.json().catch(() => null);
+        if (r.ok && d && d.amount) txt = fmtPrice(d.amount);
+      } catch { /* keep — */ }
+      if (seq !== priceSeq) return;                       // a newer country/open supersedes this answer
+      const el = orderSizes.querySelector('.size-price[data-size="' + s.id + '"]');
+      if (el) el.textContent = txt;
+    }));
+  }
   function openOrder(uid) {
     orderEntry = state.minted.find(e => e.uid === uid);
     if (!orderEntry) return;
-    setOrderMsg(""); orderGo.disabled = false; orderEl.hidden = false;
+    setOrderMsg(""); orderGo.disabled = false;
+    renderSizeOptions();
+    orderEl.hidden = false;
+    refreshSizePrices();
   }
   function closeOrder() { orderEl.hidden = true; orderEntry = null; }
   document.getElementById("order-cancel").addEventListener("click", closeOrder);
   orderEl.addEventListener("click", e => { if (e.target === orderEl) closeOrder(); });
+  orderCountry.addEventListener("change", refreshSizePrices);
   orderGo.addEventListener("click", async () => {
     if (!orderEntry) return;
-    const country = orderCountry.value, entry = orderEntry;
+    const country = orderCountry.value, size = selectedSize(), entry = orderEntry;
     orderGo.disabled = true; setOrderMsg("Preparing your print…");
     try {
       // 1) render the 300 dpi file and upload it so the lab can fetch it by URL
@@ -1657,9 +1709,9 @@
       const up = await fetch(API + "/print-image?serial=" + entry.serial, { method: "POST", headers: { "Content-Type": "image/png" }, body: blob });
       const upd = up.ok ? await up.json() : null;
       if (!upd || !upd.key) throw new Error("image upload failed");
-      // 2) get a Stripe Checkout priced live for the chosen country
+      // 2) get a Stripe Checkout priced live for the chosen size + country
       setOrderMsg("Calculating price for your country…");
-      const co = await fetch(API + "/print-checkout", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ serial: entry.serial, imageKey: upd.key, country }) });
+      const co = await fetch(API + "/print-checkout", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ serial: entry.serial, imageKey: upd.key, country, size }) });
       const cod = await co.json().catch(() => null);
       if (!co.ok || !cod || !cod.url) throw new Error((cod && cod.error) || "checkout unavailable");
       window.location.href = cod.url; // 3) hand off to Stripe's hosted page
@@ -2089,7 +2141,14 @@
   });
   refreshClaimed();   // pull everyone's certified points for the map
   // print shop: reveal the "Order print" action only once the backend is configured
-  apiGet("/print/config").then(res => { if (res && res.enabled) { state.printEnabled = true; renderLedger(); } });
+  apiGet("/print/config").then(res => {
+    if (res && res.enabled) {
+      state.printEnabled = true;
+      printSizeCfg = Array.isArray(res.sizes) ? res.sizes : [];
+      printCur = res.currency || "EUR";
+      renderLedger();
+    }
+  });
   // returning from Stripe Checkout
   if (/[?&]print=ok/.test(location.search)) {
     const pc = document.getElementById("print-confirm");
