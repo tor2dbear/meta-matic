@@ -66,9 +66,13 @@ secrets, add the Stripe webhook, test in sandbox (test card 4242…), then flip
 `PRODIGI_BASE` + live keys. Full checklist in `api/README.md`.
 
 ## Open questions
-- Which exact Prodigi SKU / size(s)? (One square fine-art print to start; could offer
-  a size picker later.)
 - International VAT/duties: leave to the recipient (current), or add Stripe Tax later?
+- Offer a size picker later? (Started single-size.)
+
+## Chosen product
+`GLOBAL-CONS-FAP-20X20` — 20×20" (~51 cm) square giclée, Enhanced Matte Art 200 gsm,
+globally routed (fulfilled from the nearest lab: UK/EU/US/CA/AU). Currency EUR. The
+artwork is 1:1 so it fills the square print area with no crop.
 
 ## Resolved
 - **Idempotency (was a webhook double-order risk).** Now enforced by D1: the webhook

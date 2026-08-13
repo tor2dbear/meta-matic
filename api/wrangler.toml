@@ -34,7 +34,7 @@ bucket_name = "meta-matic-prints"
 #   npx wrangler secret put PRODIGI_API_KEY
 [vars]
 PRODIGI_BASE = "https://api.sandbox.prodigi.com"  # sandbox first; -> https://api.prodigi.com when live
-PRODIGI_SKU = "GLOBAL-FAP-16X16"                   # CONFIRM/replace with your chosen Prodigi product SKU
+PRODIGI_SKU = "GLOBAL-CONS-FAP-20X20"              # 20x20" (~51cm) square giclée, Enhanced Matte Art 200gsm, globally routed
 PRODIGI_SHIPPING = "Standard"                      # Budget | Standard | StandardPlus | Express | Overnight
 PRINT_CURRENCY = "EUR"                             # match your Prodigi account currency to avoid FX
 PRICE_PCT_FEE = "0.039"                            # Stripe worst-case %, grossed up so you net full cost
