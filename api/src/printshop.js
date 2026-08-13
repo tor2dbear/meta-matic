@@ -177,9 +177,15 @@ export async function handlePrintShop(path, request, env, ctx) {
   // POST /stripe-webhook -> on payment, create the Prodigi order
   if (path === "/stripe-webhook" && request.method === "POST") {
     const raw = await request.text();
+    const sigHeader = request.headers.get("stripe-signature");
+    console.log("webhook-hit " + JSON.stringify({ sig: !!sigHeader, rawLen: raw.length, secretPrefix: (env.STRIPE_WEBHOOK_SECRET || "").slice(0, 9) }));
     let event;
-    try { event = await verifyStripe(raw, request.headers.get("stripe-signature"), env.STRIPE_WEBHOOK_SECRET); }
-    catch (e) { return new Response("bad signature", { status: 400 }); }
+    try { event = await verifyStripe(raw, sigHeader, env.STRIPE_WEBHOOK_SECRET); }
+    catch (e) {
+      console.log("webhook-verify-FAILED " + JSON.stringify({ err: String(e.message || e) }));
+      return new Response("bad signature", { status: 400 });
+    }
+    console.log("webhook-verified type=" + event.type);
     // Fulfil on an immediately-paid Checkout OR a delayed method (SEPA, some Klarna)
     // that later succeeds — NEVER on the bare `completed` event while still unpaid,
     // or a later payment failure would leave the seller paying for the print.
