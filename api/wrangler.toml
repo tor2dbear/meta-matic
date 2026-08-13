@@ -35,7 +35,7 @@ bucket_name = "meta-matic-prints"
 [vars]
 PRODIGI_BASE = "https://api.prodigi.com"           # LIVE — real orders are placed & charged
 PRODIGI_SKU = "GLOBAL-CONS-FAP-20X20"              # 20x20" (~51cm) square giclée, Enhanced Matte Art 200gsm, globally routed
-PRODIGI_SHIPPING = "Standard"                      # Budget | Standard | StandardPlus | Express | Overnight
+PRODIGI_SHIPPING = "Budget"                        # Budget | Standard | StandardPlus | Express | Overnight
 PRINT_CURRENCY = "EUR"                             # match your Prodigi account currency to avoid FX
 PRICE_PCT_FEE = "0.039"                            # Stripe worst-case %, grossed up so you net full cost
 PRICE_FIXED_FEE = "0.30"                           # Stripe fixed fee
