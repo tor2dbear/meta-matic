@@ -185,6 +185,16 @@ export async function handlePrintShop(path, request, env, ctx) {
     // or a later payment failure would leave the seller paying for the print.
     if (event.type === "checkout.session.completed" || event.type === "checkout.session.async_payment_succeeded") {
       const s = event.data.object;
+      // TEMP diagnostic — reveals which early-return path (if any) the webhook takes.
+      console.log("webhook-diag " + JSON.stringify({
+        type: event.type,
+        payment_status: s.payment_status,
+        hasCollected: !!s.collected_information,
+        hasCollectedShip: !!(s.collected_information && s.collected_information.shipping_details),
+        hasTopShip: !!s.shipping_details,
+        topKeys: Object.keys(s),
+        metadata: s.metadata,
+      }));
       if (s.payment_status !== "paid") return new Response("ok (awaiting payment)", { status: 200 });
       const m = s.metadata || {};
       // Newer Stripe API versions nest the collected shipping address under
