@@ -1,9 +1,15 @@
 # The deployed site is just the static files at the repo root (index.html, og.png,
 # robots.txt, sitemap.xml). Keep everything else OUT of the served asset bundle —
-# backend source, roadmap notes, docs, and this config are not part of the public site.
+# backend source, roadmap notes, docs, tooling, repo internals — so nothing leaks
+# publicly. (A local `wrangler deploy` from the repo root would otherwise upload
+# .git/ and .wrangler/ as public files.)
 /api/
 /roadmap/
 *.md
 /wrangler.jsonc
 /.assetsignore
 /.gitignore
+/.git/
+/.wrangler/
+/node_modules/
+/.DS_Store
