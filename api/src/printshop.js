@@ -148,11 +148,13 @@ function priceFor(env, base, country) {
 // Offered sizes → Prodigi SKU. Config-driven via PRINT_SIZES (JSON) so sizes can be added
 // or swapped without a code change; the default keeps the existing 20×20 (using PRODIGI_SKU)
 // plus a smaller 12×12. The first entry is the fallback when a request omits/mismatches size.
+// Each size carries `in` (physical size in inches) so the client renders at the correct
+// print resolution (in × 300 dpi) from data, not by parsing the (opaque) id.
 function printSizes(env) {
   try { if (env.PRINT_SIZES) { const a = JSON.parse(env.PRINT_SIZES); if (Array.isArray(a) && a.length) return a; } } catch { /* fall through */ }
   return [
-    { id: "20x20", sku: env.PRODIGI_SKU || "GLOBAL-CONS-FAP-20X20", label: "20×20 in (~51 cm)" },
-    { id: "12x12", sku: "GLOBAL-CONS-FAP-12X12", label: "12×12 in (~30 cm)" },
+    { id: "20x20", in: 20, sku: env.PRODIGI_SKU || "GLOBAL-CONS-FAP-20X20", label: "20×20 in (~51 cm)" },
+    { id: "12x12", in: 12, sku: "GLOBAL-CONS-FAP-12X12", label: "12×12 in (~30 cm)" },
   ];
 }
 function sizeFor(env, id) {
@@ -168,7 +170,7 @@ export async function handlePrintShop(path, request, env, ctx) {
     return json({
       enabled: !!(env.STRIPE_SECRET_KEY && env.PRODIGI_API_KEY && env.STRIPE_WEBHOOK_SECRET),
       currency: env.PRINT_CURRENCY || "EUR",
-      sizes: printSizes(env).map(s => ({ id: s.id, label: s.label })),   // no SKUs to the client
+      sizes: printSizes(env).map(s => ({ id: s.id, label: s.label, in: s.in })),   // no SKUs to the client
     });
   }
 

@@ -1607,7 +1607,8 @@
     // The "Print" download reflects the ACTUAL device resolution: 6000 px (300 dpi at 20″)
     // on desktop, but capped to 4096 px (~205 dpi) on iOS where a 6000² canvas can't be read
     // back. Label it honestly per device rather than promising a fixed 300 dpi / 6000 px.
-    const printPx = printPxFor("20x20"), printDpi = Math.round(printPx / 20);
+    const bigId = largestPrintSize().id;
+    const printPx = printPxFor(bigId), printDpi = Math.round(printPx / inchesForSize(bigId));
     const printLabel = "Print · " + printDpi + " dpi · " + printPx + " px";
     state.minted.forEach((m, idx) => {
       const wrap = document.createElement("div");
@@ -1686,7 +1687,7 @@
   const orderMsg = document.getElementById("order-msg");
   const orderGo = document.getElementById("order-go");
   let orderEntry = null;
-  let printSizeCfg = [];      // [{id,label}] from /print/config
+  let printSizeCfg = [];      // [{id,label,in}] from /print/config (in = inches, drives print px)
   let printCur = "EUR";
   // A curated worldwide set; any Prodigi-shippable country can be added here.
   const COUNTRIES = [["SE","Sweden"],["NO","Norway"],["DK","Denmark"],["FI","Finland"],["DE","Germany"],["NL","Netherlands"],["FR","France"],["ES","Spain"],["IT","Italy"],["PT","Portugal"],["BE","Belgium"],["AT","Austria"],["CH","Switzerland"],["IE","Ireland"],["PL","Poland"],["CZ","Czechia"],["GB","United Kingdom"],["US","United States"],["CA","Canada"],["AU","Australia"],["NZ","New Zealand"],["JP","Japan"],["SG","Singapore"],["HK","Hong Kong"],["AE","United Arab Emirates"],["BR","Brazil"],["MX","Mexico"],["ZA","South Africa"],["IN","India"],["KR","South Korea"]];
@@ -1769,10 +1770,21 @@
   // print ordering. So cap the client render to a device-safe max — the largest size falls
   // back to a slightly lower dpi on constrained devices instead of failing outright. The work
   // is procedural/vector, so it stays crisp at any size.
+  // Physical size in inches comes from the size config's `in` field (served by /print/config),
+  // NOT from parsing the id — an opaque id like "small" would otherwise silently fall back to
+  // 20 in and mis-size the render. Parse-the-id and 20 remain only as last-resort fallbacks.
+  function inchesForSize(sizeId) {
+    const s = printSizeCfg.find(z => z.id === sizeId);
+    return (s && Number(s.in) > 0) ? Number(s.in) : (parseInt(sizeId, 10) || 20);
+  }
   function printPxFor(sizeId) {
-    const inches = parseInt(sizeId, 10) || 20;   // "20x20" → 20, "12x12" → 12
-    const maxPx = isIOS ? 4096 : 6000;           // read isIOS lazily (defined later in this IIFE)
-    return Math.min(inches * 300, maxPx);
+    const maxPx = isIOS ? 4096 : 6000;           // iOS canvas-area cap (~16.7 Mpx); read lazily
+    return Math.min(Math.round(inchesForSize(sizeId) * 300), maxPx);
+  }
+  // The biggest offered size drives the standalone high-res download and its label.
+  function largestPrintSize() {
+    return printSizeCfg.reduce((a, s) => (inchesForSize(s.id) > inchesForSize(a.id) ? s : a),
+      printSizeCfg[0] || { id: "20x20" });
   }
   // S = canvas size in px. Default 1400 (a shareable image); printPxFor(size) renders the
   // print-ready file. Text/margins scale with k so the composition is identical at any
@@ -1869,7 +1881,7 @@
   // returns blank on iOS): 6000 px on desktop, 4096 px on iOS.
   function downloadPrint(uid) {
     const entry = state.minted.find(e => e.uid === uid);
-    if (entry) downloadCanvas(exportCanvas(entry, printPxFor("20x20")), "meta-matic-print-" + entry.serial + ".png");
+    if (entry) downloadCanvas(exportCanvas(entry, printPxFor(largestPrintSize().id)), "meta-matic-print-" + entry.serial + ".png");
   }
 
   /* ---------- focus / inspect (click -> freeze + enlarge -> deliberate sign) ---------- */
