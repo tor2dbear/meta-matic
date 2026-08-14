@@ -127,27 +127,34 @@ function vatRateFor(env, country) {
   if (overrides && overrides[country] != null) return num(overrides[country]);
   return EU.has(country) ? num(env.PRICE_VAT_RATE || 0.25) : 0;
 }
-// The customer covers the seller's ex-VAT cost + margin, plus output VAT on that sale,
-// grossed up so Stripe's cut still leaves the seller whole:
-//   charge = ((base + margin) * (1 + vat) + fixed) / (1 - pct) + buffer
-// After remitting the VAT and paying Stripe, the seller nets exactly base + margin, and
-// their real (ex-VAT) cost is base — so the margin is clean profit.
+// Output VAT is due on the WHOLE VAT-inclusive price the customer pays — not just base+margin,
+// but also the parts added to recover Stripe's fee and the buffer. So we solve for a charge C
+// that leaves the seller base+margin after BOTH remitting that VAT and paying Stripe:
+//   VAT on the sale = C · vat/(1+vat)   (C is VAT-inclusive)
+//   Stripe fee      = pct · C + fixed
+//   C·(1/(1+vat) − pct) − fixed = base + margin   ⇒   C = (base + margin + fixed) / (1/(1+vat) − pct)
+// After VAT + Stripe the seller nets exactly base + margin (buffer is genuine extra cushion),
+// and their real (ex-VAT) cost is base — so the margin is clean profit. (vat = 0 for non-EU
+// exports, which reduces this to the plain Stripe gross-up.)
 function priceFor(env, base, country) {
   const pct = num(env.PRICE_PCT_FEE || 0.039), fixed = num(env.PRICE_FIXED_FEE || 0.3);
   const buf = num(env.PRICE_BUFFER || 1.5), margin = num(env.PRICE_MARGIN || 0);
-  const gross = (base + margin) * (1 + vatRateFor(env, country));
-  const charge = (gross + fixed) / (1 - pct) + buf;
+  const vat = vatRateFor(env, country);
+  const keep = 1 / (1 + vat) - pct;                 // fraction of the charge the seller keeps
+  const charge = (base + margin + fixed) / keep + buf;
   return Math.ceil(charge * 100); // minor units (cents)
 }
 
 // Offered sizes → Prodigi SKU. Config-driven via PRINT_SIZES (JSON) so sizes can be added
 // or swapped without a code change; the default keeps the existing 20×20 (using PRODIGI_SKU)
 // plus a smaller 12×12. The first entry is the fallback when a request omits/mismatches size.
+// Each size carries `in` (physical size in inches) so the client renders at the correct
+// print resolution (in × 300 dpi) from data, not by parsing the (opaque) id.
 function printSizes(env) {
   try { if (env.PRINT_SIZES) { const a = JSON.parse(env.PRINT_SIZES); if (Array.isArray(a) && a.length) return a; } } catch { /* fall through */ }
   return [
-    { id: "20x20", sku: env.PRODIGI_SKU || "GLOBAL-CONS-FAP-20X20", label: "20×20 in (~51 cm)" },
-    { id: "12x12", sku: "GLOBAL-CONS-FAP-12X12", label: "12×12 in (~30 cm)" },
+    { id: "20x20", in: 20, sku: env.PRODIGI_SKU || "GLOBAL-CONS-FAP-20X20", label: "20×20 in (~51 cm)" },
+    { id: "12x12", in: 12, sku: "GLOBAL-CONS-FAP-12X12", label: "12×12 in (~30 cm)" },
   ];
 }
 function sizeFor(env, id) {
@@ -163,7 +170,7 @@ export async function handlePrintShop(path, request, env, ctx) {
     return json({
       enabled: !!(env.STRIPE_SECRET_KEY && env.PRODIGI_API_KEY && env.STRIPE_WEBHOOK_SECRET),
       currency: env.PRINT_CURRENCY || "EUR",
-      sizes: printSizes(env).map(s => ({ id: s.id, label: s.label })),   // no SKUs to the client
+      sizes: printSizes(env).map(s => ({ id: s.id, label: s.label, in: s.in })),   // no SKUs to the client
     });
   }
 

@@ -6,10 +6,16 @@ How the site and the API get to production, and the merge-gated flow we want.
 
 | Piece | Source | Deployed by | Today |
 |-------|--------|-------------|-------|
-| **Site** — `index.html` + `og.png`, `robots.txt`, `sitemap.xml` (repo root, no build) | this repo | **Cloudflare Workers Builds** (connected to the GitHub repo) | every push to the connected branch builds & deploys |
+| **Site** — `index.html` + `og.png`, `robots.txt`, `sitemap.xml` (repo root, no build) | root `wrangler.jsonc` (static assets) | **Cloudflare Workers Builds** — a **Workers (static assets)** project, *not* Pages | `main` → prod; other branches → preview URL |
 | **API** — `api/` Worker (Stripe + Prodigi + D1 + R2) | `api/wrangler.toml` | `wrangler deploy`, run manually | live keys; deployed by hand |
 
 There is **no GitHub Actions** in this repo — deployment is Cloudflare-native.
+
+The site Worker's config lives in the committed root **`wrangler.jsonc`** (`name`, `compatibility_date`,
+`preview_urls: true`, `assets.directory: "."`), with **`.assetsignore`** keeping backend source /
+docs out of the served bundle. It's a Workers *static-assets* project — unlike a Pages project
+(e.g. `cadence`), branch previews aren't automatic: they run `wrangler versions upload`, which is
+why an explicit config with `preview_urls` is required for the preview build to succeed.
 
 ## The flow we want
 
@@ -20,30 +26,27 @@ Cloudflare Workers Builds supports this natively (no Actions needed). It's three
 settings in the dashboard: **Workers & Pages → (the site Worker) → Settings → Builds**.
 
 1. **Production branch = `main`.**
-   Pushes to `main` (i.e. merges) deploy to production / the custom domain.
-2. **Enable "Non-production branch builds"** (preview deployments).
-   Every push to a non-`main` branch builds and gets its own
-   `*.workers.dev` **preview URL**, and Cloudflare comments that URL on the PR.
+   Pushes to `main` (i.e. merges) run the **Deploy command** `npx wrangler deploy` → production.
+2. **Enable "Non-production branch builds"** with the **Version command** `npx wrangler versions upload`.
+   Every push to a non-`main` branch uploads a **preview version** with its own
+   `*.workers.dev` **preview URL** (needs `preview_urls: true` in `wrangler.jsonc`), and
+   Cloudflare comments that URL on the PR — production is untouched.
 3. Leave the custom domain pointed at the **production** deployment, so it only
    moves on a merge to `main`.
 
 Result: pushing to a `claude/…` (or any) branch → preview only; merging the PR →
 production.
 
-## ⚠️ Migration order (do this once, in this order)
+## Status / gotchas (already sorted)
 
-Production branch is currently **not** `main` (it's been auto-deploying the working
-branch — that's why every push went live). If you just flip the production branch to
-`main` first, Cloudflare will deploy whatever is on `main` *now* (older) over prod.
-
-So:
-
-1. **Merge the current working branch into `main`** via its PR, so `main` equals
-   what is already live.
-2. **Then** set **Production branch = `main`** in the dashboard.
-3. **Then** enable non-production branch builds (previews).
-
-After that, `main` is production and every other branch is a preview.
+- **Production branch = `main`** and non-production builds are enabled. ✅
+- The **Version command** must be `npx wrangler versions upload` (not `wrangler deploy`) —
+  otherwise every branch push deploys straight to **production**. This was the original
+  "every push went live" bug. ✅ fixed.
+- Preview builds also need the committed **`wrangler.jsonc`** (with `preview_urls: true`);
+  without it `versions upload` fails instantly at the config stage. ✅ added.
+- Because the production deploy only runs on a **merge to `main`**, any config change here is
+  safe to trial on a branch first: the preview build exercises it without touching prod.
 
 ## The API Worker (real Stripe/Prodigi money)
 

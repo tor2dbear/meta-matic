@@ -1,0 +1,18 @@
+{
+  // Site Worker (static assets only) for https://meta-matic.tor2dbear.com.
+  //
+  // Committing this makes the Worker's config explicit and version-controlled, so BOTH the
+  // production deploy (`wrangler deploy`, run on `main`) and the per-branch preview builds
+  // (`wrangler versions upload`) use the same config. Preview builds were failing before this
+  // existed: `versions upload` needs a real config + `preview_urls`, which the dashboard-only
+  // (implicit) setup didn't provide, so non-production branch builds errored immediately.
+  //
+  // This is the SITE only. The order/print API is a separate Worker under api/
+  // (see api/wrangler.toml) with its own D1/R2 bindings — it is not deployed from here.
+  "name": "meta-matic",
+  "compatibility_date": "2026-08-13",
+  "preview_urls": true,
+  "assets": {
+    "directory": "."
+  }
+}

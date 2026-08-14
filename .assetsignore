@@ -1,0 +1,9 @@
+# The deployed site is just the static files at the repo root (index.html, og.png,
+# robots.txt, sitemap.xml). Keep everything else OUT of the served asset bundle —
+# backend source, roadmap notes, docs, and this config are not part of the public site.
+/api/
+/roadmap/
+*.md
+/wrangler.jsonc
+/.assetsignore
+/.gitignore

@@ -36,7 +36,7 @@ bucket_name = "meta-matic-prints"
 PRODIGI_BASE = "https://api.prodigi.com"           # LIVE — real orders are placed & charged
 PRODIGI_SKU = "GLOBAL-CONS-FAP-20X20"              # default/fallback SKU (used when a request omits size)
 # Offered sizes (customer picks one; each is quoted, charged & ordered on its own SKU):
-PRINT_SIZES = '[{"id":"20x20","sku":"GLOBAL-CONS-FAP-20X20","label":"20×20 in (~51 cm)"},{"id":"12x12","sku":"GLOBAL-CONS-FAP-12X12","label":"12×12 in (~30 cm)"}]'
+PRINT_SIZES = '[{"id":"20x20","in":20,"sku":"GLOBAL-CONS-FAP-20X20","label":"20×20 in (~51 cm)"},{"id":"12x12","in":12,"sku":"GLOBAL-CONS-FAP-12X12","label":"12×12 in (~30 cm)"}]'
 PRODIGI_SHIPPING = "Budget"                        # Budget | Standard | StandardPlus | Express | Overnight
 PRINT_CURRENCY = "EUR"                             # match your Prodigi account currency to avoid FX
 PRICE_PCT_FEE = "0.039"                            # Stripe worst-case %, grossed up so you net full cost

@@ -17,7 +17,8 @@ End-to-end shop on a Cloudflare Worker + D1 + R2, fronted by the single-page sit
   Exactly-once fulfilment via a D1 `print_orders` row + Prodigi `Idempotency-Key`, so a
   Stripe retry or a mid-flight crash never double-orders or strands a paid order.
 - **Pricing (never out of pocket), modelled for a Swedish VAT-registered B2C seller:**
-  `charge = ((base + margin)·(1 + vat) + fixed)/(1 − pct) + buffer`. `base` = Prodigi
+  `charge = (base + margin + fixed)/(1/(1 + vat) − pct) + buffer` (VAT is grossed up over the
+  whole charge, not just base+margin). `base` = Prodigi
   items + shipping (ex-VAT; input VAT is reclaimed). `vat` = output VAT the seller
   remits — home rate on EU sales, 0 % on non-EU exports. All levers in `wrangler.toml`
   (`PRICE_*`, `PRICE_VAT_RATE`, `PRICE_VAT_RATES`).
