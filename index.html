@@ -1604,6 +1604,11 @@
       return;
     }
     el.ledger.innerHTML = "";
+    // The "Print" download reflects the ACTUAL device resolution: 6000 px (300 dpi at 20″)
+    // on desktop, but capped to 4096 px (~205 dpi) on iOS where a 6000² canvas can't be read
+    // back. Label it honestly per device rather than promising a fixed 300 dpi / 6000 px.
+    const printPx = printPxFor("20x20"), printDpi = Math.round(printPx / 20);
+    const printLabel = "Print · " + printDpi + " dpi · " + printPx + " px";
     state.minted.forEach((m, idx) => {
       const wrap = document.createElement("div");
       wrap.className = "cert" + (idx === 0 ? " newest" : "");
@@ -1632,7 +1637,7 @@
             '<button class="cert-download" data-uid="' + m.uid + '" aria-haspopup="true" aria-expanded="false" title="Download a PNG of your work">↓ Download</button>' +
             '<div class="cert-dl-menu" hidden>' +
               '<button class="cert-dl-opt" data-uid="' + m.uid + '" data-res="screen">Screen · 1400 px</button>' +
-              '<button class="cert-dl-opt" data-uid="' + m.uid + '" data-res="print">Print · 300 dpi · 6000 px</button>' +
+              '<button class="cert-dl-opt" data-uid="' + m.uid + '" data-res="print">' + printLabel + '</button>' +
             '</div>' +
           '</div>' +
         '</div>';
