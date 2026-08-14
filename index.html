@@ -264,12 +264,16 @@
   .fm-fine { font-size: 10px; letter-spacing: 0.04em; color: var(--faint); margin: 4px 0 0; }
   .fm-msg { font-size: 11.5px; line-height: 1.5; color: var(--signal); margin: 6px 0 0; }
   .fm-msg[hidden] { display: none; }
-  /* Post-certify confirmation panel (replaces the actions on a successful sign) */
-  .fm-success[hidden] { display: none; }
-  .fm-success-t { font-size: 12.5px; line-height: 1.55; color: var(--ink); margin: 2px 0 10px; }
-  .fm-success-t b { color: var(--signal); font-weight: 700; }
-  .fm-success-actions { display: flex; flex-direction: column; gap: 6px; }
-  .fm-success-actions button { width: 100%; }
+  /* Post-certify "landed" pulse on the "Certified · you" chip: after the card closes, the
+     count flashes signal-red and pops, and the ▾ enlarges — so it's clear where the work went. */
+  .chip.you .v { transition: color .5s ease; }
+  .chip.you .cue { display: inline-block; transition: color .5s ease, transform .5s ease; }
+  .chip.you.landed .v { color: var(--signal); }
+  .chip.you.landed .cue { color: var(--signal); transform: scale(1.55); }
+  @media (prefers-reduced-motion: no-preference) {
+    @keyframes youPop { 0% { transform: scale(1); } 30% { transform: scale(1.3); } 100% { transform: scale(1); } }
+    .chip.you.landed .v { animation: youPop .9s cubic-bezier(.2,.85,.25,1); transform-origin: left center; }
+  }
   @media (prefers-reduced-motion: no-preference) {
     .focus-card { animation: focusin .26s cubic-bezier(.2,.7,.3,1); }
   }
@@ -527,15 +531,6 @@
           off-chain signature (personal_sign) — no gas, no chain. Save your certified
           works as images from “Certified · you”.</p>
         <p class="fm-msg" id="f-msg" hidden></p>
-        <!-- Post-certify confirmation: names WHERE the work landed and offers a jump there,
-             so signing never feels like the work just vanished. -->
-        <div class="fm-success" id="f-success" hidden>
-          <p class="fm-success-t" id="f-success-t"></p>
-          <div class="fm-success-actions">
-            <button class="primary" id="f-view-works" type="button">View your works ↗</button>
-            <button id="f-keep" type="button">Keep watching</button>
-          </div>
-        </div>
       </div>
     </div>
   </div>
@@ -1511,7 +1506,7 @@
 
     if (!net) {   // offline / no backend: exclusivity can't be enforced, keep a local copy
       mint(serial, { method, wallet: walletEntry(walletData) });
-      showCertSuccess(serial, method, true);
+      closeFocus(true); flashYou();   // close the card; pulse the "Certified · you" chip so you see where it landed
       return;
     }
     if (!ok) {   // server reachable but rejected — do NOT mint a false certificate
@@ -1522,7 +1517,7 @@
       mint(serial, { method, wallet: walletEntry(walletData) });
       if (typeof data.total === "number") { state.globalTotal = data.total; updateGlobalChip(); }
       refreshClaimed();
-      showCertSuccess(serial, method, false);
+      closeFocus(true); flashYou();   // close the card; pulse the "Certified · you" chip so you see where it landed
       return;
     }
     // Taken — someone was first. Stay on the card and show who.
@@ -1999,39 +1994,20 @@
     }
 
     clearCardMsg();
-    resetFocusCard();                 // restore actions/notes; clear any prior success panel
     focusEl.hidden = false;
     document.body.style.overflow = "hidden"; // lock background scroll behind the modal
     focusCard.scrollTop = 0; focusEl.scrollTop = 0; // reopen at the top (card is the scroll container on short screens)
     document.getElementById("f-release").focus({ preventScroll: true }); // always present; certify buttons may be hidden if claimed
   }
-  // Swap the card into its post-certify state: the confirmation panel replaces the
-  // certify/release actions and names WHERE the work landed ("Certified · you", ↗ top-right).
-  function showCertSuccess(serial, method, offline) {
-    const actions = focusCard.querySelector(".fm-actions");
-    const note = focusCard.querySelector(".fm-note");
-    const fine = focusCard.querySelector(".fm-fine");
-    if (actions) actions.hidden = true;
-    if (note) note.hidden = true;
-    if (fine) fine.hidden = true;
-    clearCardMsg();
-    const no = "№ " + serial.toLocaleString("en-US");
-    document.getElementById("f-success-t").innerHTML =
-      (method === "wallet" ? "⛓ " : "✓ ") + "<b>Signed.</b> " + no +
-      (offline ? " saved locally (offline)." : " is yours.") +
-      "<br>It’s in <b>“Certified · you”</b> ↗ — top-right. Open it to save or order a print.";
-    document.getElementById("f-success").hidden = false;
-    document.getElementById("f-view-works").focus({ preventScroll: true });
-  }
-  // Undo showCertSuccess so the card reopens clean for the next work.
-  function resetFocusCard() {
-    const actions = focusCard.querySelector(".fm-actions");
-    const note = focusCard.querySelector(".fm-note");
-    const fine = focusCard.querySelector(".fm-fine");
-    if (actions) actions.hidden = false;
-    if (note) note.hidden = false;
-    if (fine) fine.hidden = false;
-    document.getElementById("f-success").hidden = true;
+  // After signing, the card closes and this pulses the "Certified · you" chip — the number
+  // flashes signal-red and grows, and the ▾ enlarges — so it's obvious the work landed there.
+  let youFlashT = 0;
+  function flashYou() {
+    youToggle.classList.remove("landed");
+    void youToggle.offsetWidth;   // reflow so the animation restarts on rapid re-certify
+    youToggle.classList.add("landed");
+    clearTimeout(youFlashT);
+    youFlashT = setTimeout(() => youToggle.classList.remove("landed"), 1000);
   }
   function closeFocus(silent) {
     focusEl.hidden = true;
@@ -2054,10 +2030,6 @@
     if (focusSerial != null) signWithWallet(focusSerial);
   });
   document.getElementById("f-release").addEventListener("click", () => closeFocus(false));
-  // Success panel: jump straight to the drawer (newest cert sits highlighted at the top),
-  // or dismiss and keep watching the machine.
-  document.getElementById("f-view-works").addEventListener("click", () => { closeFocus(true); setDrawer(true); });
-  document.getElementById("f-keep").addEventListener("click", () => closeFocus(false));
   focusEl.addEventListener("click", e => { if (e.target === focusEl) closeFocus(false); });
 
   /* ---------- controls ---------- */
