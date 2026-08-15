@@ -53,8 +53,18 @@ production.
 Do **not** auto-deploy the API per branch — a preview API with live keys would take
 real orders. Keep it merge-gated:
 
-- Deploy the API only from `main` (manually with `wrangler deploy`, or add a second
-  Workers Build whose root dir is `api/` with production branch `main`).
+- Deploy the API only from `main`, and **always pass the config explicitly**:
+
+  ```
+  cd api
+  npx wrangler deploy --config wrangler.toml
+  ```
+
+  ⚠️ The repo root has a `wrangler.jsonc` (for the *site* Worker's preview builds). Wrangler
+  will pick that up and deploy the **site** Worker (`meta-matic`) — uploading the whole repo as
+  assets — even when you run from `api/`, unless you point it at `api/wrangler.toml` with
+  `--config`. Without `--config` you deploy the wrong Worker. (Alternatively, add a second
+  Workers Build whose root dir is `api/`, production branch `main`.)
 - To exercise API changes safely before merge, stand up the **sandbox worker**
   (separate route, test Stripe keys, sandbox Prodigi, its own D1/R2) described in
   [`roadmap/sandbox-staging.md`](roadmap/sandbox-staging.md). That's the parallel
@@ -67,6 +77,9 @@ git switch -c my-change            # branch off main
 # …edit…
 git push -u origin my-change       # Cloudflare builds a preview + comments the URL on the PR
 # open a PR, review against the preview URL
-# merge to main  ->  production deploys
-# API changed?  ->  after merge, deploy it from main (or via the sandbox first)
+# merge to main  ->  production (site) deploys automatically
+# API changed?  ->  after merge, from main:  cd api && npx wrangler deploy --config wrangler.toml
 ```
+
+Never `wrangler deploy` the **site** by hand — Workers Builds owns it on merge. A manual root
+deploy also drags `.git/`/`.wrangler/` into the asset bundle (see `.assetsignore`).
